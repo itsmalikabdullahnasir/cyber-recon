@@ -10,8 +10,13 @@ import { NotesTab } from "@/components/NotesTab";
 import { SubdomainsTab } from "@/components/SubdomainsTab";
 import { ShodanPanel } from "@/components/ShodanPanel";
 import { CVSSCalculator } from "@/components/CVSSCalculator";
+import {
+  WhoisPanel, DnsPanel, GeoPanel, SslPanel, ThreatPanel,
+  ReputationPanel, CategorizationPanel, AvailabilityPanel,
+  VpnPanel, EmailPanel, ScreenshotPanel,
+} from "@/components/ReconPanels";
 
-type Tab = "hosts" | "findings" | "notes" | "overview" | "subdomains" | "shodan" | "cvss";
+type Tab = "hosts" | "findings" | "notes" | "overview" | "subdomains" | "shodan" | "cvss" | "recon";
 
 export function TargetDetailClient({
   target, hosts, findings, subdomains,
@@ -26,6 +31,7 @@ export function TargetDetailClient({
     { id: "hosts", label: "Hosts", icon: "🖥️", count: hosts.length },
     { id: "findings", label: "Findings", icon: "🐛", count: findings.length },
     { id: "shodan", label: "Shodan", icon: "🔍" },
+    { id: "recon", label: "Recon", icon: "🕵️" },
     { id: "cvss", label: "CVSS", icon: "📐" },
     { id: "notes", label: "Notes", icon: "📝" },
   ];
@@ -162,6 +168,25 @@ export function TargetDetailClient({
       {tab === "shodan" && <ShodanPanel targetId={target.id} targetName={target.name} />}
       {tab === "cvss" && <CVSSCalculator />}
       {tab === "notes" && <NotesTab target={target} />}
+
+      {tab === "recon" && (
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-muted-dim">Powered by WhoisXML API — all lookups use your API key</p>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <WhoisPanel defaultTarget={target.domain || target.name} />
+            <DnsPanel defaultTarget={target.domain || target.name} />
+            <SslPanel defaultTarget={target.domain || target.name} />
+            <ReputationPanel defaultTarget={target.domain || target.name} />
+            <CategorizationPanel defaultTarget={target.domain || target.name} />
+            <AvailabilityPanel defaultTarget={target.domain || target.name} />
+            <GeoPanel defaultTarget={hosts[0]?.ip || ""} />
+            <ThreatPanel defaultTarget={hosts[0]?.ip || ""} />
+            <VpnPanel defaultTarget={hosts[0]?.ip || ""} />
+            <EmailPanel />
+            <ScreenshotPanel defaultTarget={`https://${target.domain || target.name}`} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
