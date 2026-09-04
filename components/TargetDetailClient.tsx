@@ -15,8 +15,15 @@ import {
   ReputationPanel, CategorizationPanel, AvailabilityPanel,
   VpnPanel, EmailPanel, ScreenshotPanel,
 } from "@/components/ReconPanels";
+import {
+  SecurityHeadersPanel, CorsPanel, WafPanel,
+  MethodsPanel, CookiesPanel, TlsPanel,
+} from "@/components/SecurityScanner";
+import {
+  BgpPanel, CdnPanel, NetblocksPanel, HistoryPanel,
+} from "@/components/InfraLookup";
 
-type Tab = "hosts" | "findings" | "notes" | "overview" | "subdomains" | "shodan" | "cvss" | "recon";
+type Tab = "hosts" | "findings" | "notes" | "overview" | "subdomains" | "shodan" | "cvss" | "recon" | "security" | "infra";
 
 export function TargetDetailClient({
   target, hosts, findings, subdomains,
@@ -31,7 +38,9 @@ export function TargetDetailClient({
     { id: "hosts", label: "Hosts", icon: "🖥️", count: hosts.length },
     { id: "findings", label: "Findings", icon: "🐛", count: findings.length },
     { id: "shodan", label: "Shodan", icon: "🔍" },
+    { id: "security", label: "Security", icon: "🛡️" },
     { id: "recon", label: "Recon", icon: "🕵️" },
+    { id: "infra", label: "Infra", icon: "📡" },
     { id: "cvss", label: "CVSS", icon: "📐" },
     { id: "notes", label: "Notes", icon: "📝" },
   ];
@@ -169,9 +178,23 @@ export function TargetDetailClient({
       {tab === "cvss" && <CVSSCalculator />}
       {tab === "notes" && <NotesTab target={target} />}
 
+      {tab === "security" && (
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-muted-dim">Web security analysis — checks headers, CORS, WAF, TLS, methods, cookies</p>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <SecurityHeadersPanel defaultTarget={`https://${target.domain || target.name}`} />
+            <CorsPanel defaultTarget={`https://${target.domain || target.name}`} />
+            <WafPanel defaultTarget={`https://${target.domain || target.name}`} />
+            <TlsPanel defaultTarget={`https://${target.domain || target.name}`} />
+            <MethodsPanel defaultTarget={`https://${target.domain || target.name}`} />
+            <CookiesPanel defaultTarget={`https://${target.domain || target.name}`} />
+          </div>
+        </div>
+      )}
+
       {tab === "recon" && (
         <div className="flex flex-col gap-4">
-          <p className="text-xs text-muted-dim">Powered by WhoisXML API — all lookups use your API key</p>
+          <p className="text-xs text-muted-dim">Powered by WhoisXML API</p>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <WhoisPanel defaultTarget={target.domain || target.name} />
             <DnsPanel defaultTarget={target.domain || target.name} />
@@ -184,6 +207,18 @@ export function TargetDetailClient({
             <VpnPanel defaultTarget={hosts[0]?.ip || ""} />
             <EmailPanel />
             <ScreenshotPanel defaultTarget={`https://${target.domain || target.name}`} />
+          </div>
+        </div>
+      )}
+
+      {tab === "infra" && (
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-muted-dim">Network infrastructure — BGP/ASN, CDN, netblocks, domain history</p>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <BgpPanel defaultTarget={hosts[0]?.ip || ""} />
+            <CdnPanel defaultTarget={target.domain || target.name} />
+            <NetblocksPanel defaultTarget={hosts[0]?.ip || ""} />
+            <HistoryPanel defaultTarget={target.domain || target.name} />
           </div>
         </div>
       )}
