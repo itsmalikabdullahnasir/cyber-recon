@@ -2,10 +2,10 @@ import type { Severity } from "@/lib/types";
 
 const config: Record<Severity, { bg: string; text: string; dot: string; border: string }> = {
   Info: { bg: "bg-zinc-500/8", text: "text-zinc-400", dot: "bg-zinc-400", border: "border-zinc-500/20" },
-  Low: { bg: "bg-emerald-500/8", text: "text-emerald-400", dot: "bg-emerald-400", border: "border-emerald-500/20" },
+  Low: { bg: "bg-indigo-500/8", text: "text-indigo-400", dot: "bg-indigo-400", border: "border-indigo-500/20" },
   Medium: { bg: "bg-amber-500/8", text: "text-amber-400", dot: "bg-amber-400", border: "border-amber-500/20" },
-  High: { bg: "bg-rose-500/8", text: "text-rose-400", dot: "bg-rose-400", border: "border-rose-500/20" },
-  Critical: { bg: "bg-red-600/12", text: "text-red-300", dot: "bg-red-300", border: "border-red-500/25" },
+  High: { bg: "bg-pink-500/8", text: "text-pink-400", dot: "bg-pink-400", border: "border-pink-500/20" },
+  Critical: { bg: "bg-rose-600/12", text: "text-rose-300", dot: "bg-rose-300", border: "border-rose-500/25" },
 };
 
 export function SeverityBadge({ value }: { value: Severity }) {

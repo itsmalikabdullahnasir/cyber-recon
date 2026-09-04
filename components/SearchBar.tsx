@@ -15,19 +15,14 @@ export function SearchBar({
         stroke="currentColor"
         viewBox="0 0 24 24"
       >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={1.5}
-          d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-        />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
       </svg>
       <input
         type="text"
         placeholder="Search targets, IPs, findings..."
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-white/5 bg-surface py-2.5 pl-10 pr-9 text-sm text-foreground placeholder:text-muted-dim outline-none transition-all duration-200 focus:border-accent/30 focus:bg-surface-hover focus:shadow-[0_0_0_1px_rgba(0,229,160,0.1)] sm:w-80"
+        className="w-full rounded-lg border border-white/5 bg-surface py-2.5 pl-10 pr-9 text-sm text-foreground placeholder:text-muted-dim outline-none transition-all duration-200 focus:border-accent/30 focus:bg-surface-hover focus:shadow-[0_0_0_1px_rgba(168,85,247,0.1)] sm:w-80"
       />
       {value && (
         <button

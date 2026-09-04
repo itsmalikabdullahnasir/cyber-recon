@@ -3,15 +3,13 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import type { Target, Host, Finding, Activity } from "@/lib/types";
-import {
-  LIKELIHOOD_ORDER,
-  STATUS_COLORS,
-  CATEGORY_ICONS,
-} from "@/lib/types";
+import { LIKELIHOOD_ORDER, STATUS_COLORS, CATEGORY_ICONS } from "@/lib/types";
 import { TargetCard } from "@/components/TargetCard";
 import { SearchBar } from "@/components/SearchBar";
 import { FilterChips } from "@/components/FilterChips";
 import { StatCard } from "@/components/StatCard";
+import { RiskScoreGauge } from "@/components/RiskScoreGauge";
+import { BarChart } from "@/components/BarChart";
 
 export function DashboardClient({
   targets,
@@ -28,7 +26,6 @@ export function DashboardClient({
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
-  const [view, setView] = useState<"grid" | "list">("grid");
 
   const hostsByTarget = useMemo(() => {
     const map = new Map<string, Host[]>();
@@ -52,27 +49,20 @@ export function DashboardClient({
 
   const categories = useMemo(() => {
     const cats = new Map<string, number>();
-    for (const t of targets) {
-      cats.set(t.category, (cats.get(t.category) ?? 0) + 1);
-    }
+    for (const t of targets) cats.set(t.category, (cats.get(t.category) ?? 0) + 1);
     return Array.from(cats.entries()).sort((a, b) => b[1] - a[1]);
   }, [targets]);
 
   const filtered = useMemo(() => {
     let result = targets;
-
     if (filter === "High risk") {
       result = result.filter((t) => {
         const tHosts = hostsByTarget.get(t.id) ?? [];
-        return tHosts.some(
-          (h) =>
-            h.exploitability === "High" || h.exploitability === "Critical"
-        );
+        return tHosts.some((h) => h.exploitability === "High" || h.exploitability === "Critical");
       });
     } else if (filter !== "All") {
       result = result.filter((t) => t.category === filter);
     }
-
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter((t) => {
@@ -82,166 +72,159 @@ export function DashboardClient({
         const tHosts = hostsByTarget.get(t.id) ?? [];
         if (tHosts.some((h) => h.ip.toLowerCase().includes(q))) return true;
         const tFindings = findingsByTarget.get(t.id) ?? [];
-        if (tFindings.some((f) => f.title.toLowerCase().includes(q)))
-          return true;
+        if (tFindings.some((f) => f.title.toLowerCase().includes(q))) return true;
         return false;
       });
     }
-
     return result;
   }, [targets, filter, search, hostsByTarget, findingsByTarget]);
 
-  const highRisk = hosts.filter(
-    (h) => h.exploitability === "High" || h.exploitability === "Critical"
-  ).length;
+  const highRisk = hosts.filter((h) => h.exploitability === "High" || h.exploitability === "Critical").length;
+  const criticalFindings = findings.filter((f) => f.severity === "Critical" || f.severity === "High").length;
+  const liveHosts = hosts.filter((h) => h.status === "Live").length;
 
-  const criticalFindings = findings.filter(
-    (f) => f.severity === "Critical" || f.severity === "High"
-  ).length;
-
-  const severityDistribution = useMemo(() => {
-    const dist = { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0 };
+  // Risk score: 0-100 based on findings severity
+  const riskScore = useMemo(() => {
+    if (findings.length === 0) return 0;
+    const weights = { Critical: 25, High: 15, Medium: 8, Low: 3, Info: 0 };
+    let score = 0;
     for (const f of findings) {
-      dist[f.severity as keyof typeof dist]++;
+      score += weights[f.severity as keyof typeof weights] ?? 0;
     }
-    return dist;
+    return Math.min(100, Math.round((score / (findings.length * 10)) * 100));
   }, [findings]);
 
+  // Status distribution for bar chart
+  const statusDistribution = useMemo(() => {
+    const dist: Record<string, number> = {};
+    for (const t of targets) {
+      dist[t.status] = (dist[t.status] ?? 0) + 1;
+    }
+    return Object.entries(dist).map(([label, value]) => ({ label, value }));
+  }, [targets]);
+
+  // Severity distribution for bar chart
+  const severityBars = useMemo(() => {
+    const dist = { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0 };
+    for (const f of findings) dist[f.severity as keyof typeof dist]++;
+    return Object.entries(dist)
+      .filter(([, v]) => v > 0)
+      .map(([label, value]) => ({ label, value }));
+  }, [findings]);
+
+  const severityColors: Record<string, string> = {
+    Critical: "#f43f5e",
+    High: "#ec4899",
+    Medium: "#f59e0b",
+    Low: "#a855f7",
+    Info: "#5c5775",
+  };
+
   return (
-    <div className="flex flex-col gap-6">
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <StatCard
-          icon="🎯"
-          label="Targets"
-          value={targets.length}
-          sub={`${new Set(targets.map((t) => t.category)).size} categories`}
-        />
-        <StatCard
-          icon="🖥️"
-          label="Hosts"
-          value={hosts.length}
-          sub={`${hosts.filter((h) => h.status === "Live").length} live`}
-        />
-        <StatCard
-          icon="⚠️"
-          label="High risk"
-          value={highRisk}
-          accent={highRisk > 0}
-          sub="hosts"
-        />
-        <StatCard
-          icon="🐛"
-          label="Findings"
-          value={findings.length}
-          accent={criticalFindings > 0}
-          sub={`${criticalFindings} critical/high`}
-        />
-        <StatCard
-          icon="📝"
-          label="Activities"
-          value={activities.length}
-          sub="logged"
-        />
+    <div className="flex flex-col gap-5">
+      {/* Top section: Stat cards + Risk Gauge */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+        {/* Stat cards grid */}
+        <div className="flex-1 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard
+            icon="🎯"
+            label="Your Attack Surface"
+            value={hosts.length}
+            sub={`${liveHosts} live hosts`}
+            sparkData={[3, 5, 4, 7, 6, 8, hosts.length]}
+            sparkColor="#a855f7"
+          />
+          <StatCard
+            icon="🖥️"
+            label="Targets"
+            value={targets.length}
+            sub={`${new Set(targets.map((t) => t.category)).size} categories`}
+            sparkData={[1, 2, 2, 3, targets.length]}
+            sparkColor="#d946ef"
+          />
+          <StatCard
+            icon="⚠️"
+            label="High Risk"
+            value={highRisk}
+            accent={highRisk > 0}
+            sub="critical + high hosts"
+            sparkData={[0, 1, 0, 2, 1, highRisk]}
+            sparkColor="#f43f5e"
+          />
+          <StatCard
+            icon="🐛"
+            label="Findings"
+            value={findings.length}
+            accent={criticalFindings > 0}
+            sub={`${criticalFindings} critical/high`}
+            sparkData={[0, 2, 1, 3, 5, findings.length]}
+            sparkColor="#ec4899"
+          />
+        </div>
+
+        {/* Risk Score Gauge */}
+        <div className="flex items-center justify-center rounded-xl border border-white/5 bg-surface p-6 lg:w-[200px]">
+          <RiskScoreGauge score={riskScore} label="risk score" />
+        </div>
       </div>
 
-      {/* Severity distribution bar */}
-      {findings.length > 0 && (
-        <div className="rounded-xl border border-white/5 bg-surface p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-dim">
-              Severity distribution
-            </span>
-            <span className="text-[10px] text-muted-dim">
-              {findings.length} total
-            </span>
+      {/* Severity distribution + Status bar chart */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {/* Severity bars */}
+        {severityBars.length > 0 && (
+          <div className="rounded-xl border border-white/5 bg-surface p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
+                Findings by severity
+              </span>
+              <span className="text-[10px] text-muted-dim">{findings.length} total</span>
+            </div>
+            <BarChart
+              data={severityBars}
+              colors={severityBars.map((d) => severityColors[d.label] ?? "#a855f7")}
+              height={80}
+            />
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+              {severityBars.map((d) => (
+                <div key={d.label} className="flex items-center gap-1.5 text-[10px] text-muted">
+                  <span className="h-2 w-2 rounded-sm" style={{ background: severityColors[d.label] }} />
+                  {d.label}: {d.value}
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="flex h-1.5 overflow-hidden rounded-full">
-            {(["Critical", "High", "Medium", "Low", "Info"] as const).map(
-              (sev) => {
-                const count =
-                  severityDistribution[sev as keyof typeof severityDistribution];
-                if (count === 0) return null;
-                const pct = (count / findings.length) * 100;
-                const colors: Record<string, string> = {
-                  Critical: "bg-red-500",
-                  High: "bg-rose-400",
-                  Medium: "bg-amber-400",
-                  Low: "bg-emerald-400",
-                  Info: "bg-zinc-400",
-                };
-                return (
-                  <div
-                    key={sev}
-                    className={`${colors[sev]} h-full transition-all duration-700`}
-                    style={{ width: `${pct}%` }}
-                    title={`${sev}: ${count}`}
-                  />
-                );
-              }
-            )}
-          </div>
-          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1">
-            {(["Critical", "High", "Medium", "Low", "Info"] as const).map(
-              (sev) => {
-                const count =
-                  severityDistribution[sev as keyof typeof severityDistribution];
-                const dotColors: Record<string, string> = {
-                  Critical: "bg-red-500",
-                  High: "bg-rose-400",
-                  Medium: "bg-amber-400",
-                  Low: "bg-emerald-400",
-                  Info: "bg-zinc-400",
-                };
-                return (
-                  <div key={sev} className="flex items-center gap-1.5 text-[10px] text-muted">
-                    <span
-                      className={`inline-block h-1.5 w-1.5 rounded-full ${dotColors[sev]}`}
-                    />
-                    {sev}: {count}
-                  </div>
-                );
-              }
-            )}
-          </div>
-        </div>
-      )}
+        )}
 
-      {/* Main content area */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
-        {/* Left: targets */}
+        {/* Status distribution */}
+        {statusDistribution.length > 0 && (
+          <div className="rounded-xl border border-white/5 bg-surface p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
+                Targets by status
+              </span>
+            </div>
+            <BarChart
+              data={statusDistribution}
+              colors={["#5c5775", "#818cf8", "#a855f7", "#d946ef", "#f59e0b", "#ec4899", "#f43f5e", "#10b981"]}
+              height={80}
+            />
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+              {statusDistribution.map((d) => (
+                <div key={d.label} className="text-[10px] text-muted">
+                  {d.label}: {d.value}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Main content: Targets + Activity */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:gap-5">
         <div className="flex flex-1 flex-col gap-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
               <SearchBar value={search} onChange={setSearch} />
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setView("grid")}
-                  className={`rounded-md p-1.5 transition-all duration-200 ${
-                    view === "grid"
-                      ? "bg-accent/10 text-accent"
-                      : "text-muted-dim hover:text-foreground"
-                  }`}
-                  title="Grid view"
-                >
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => setView("list")}
-                  className={`rounded-md p-1.5 transition-all duration-200 ${
-                    view === "list"
-                      ? "bg-accent/10 text-accent"
-                      : "text-muted-dim hover:text-foreground"
-                  }`}
-                  title="List view"
-                >
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
-                  </svg>
-                </button>
-              </div>
             </div>
           </div>
 
@@ -258,7 +241,7 @@ export function DashboardClient({
                 <button
                   key={cat}
                   onClick={() => setFilter(cat)}
-                  className="group flex items-center gap-2.5 rounded-lg border border-white/5 bg-surface px-3.5 py-2.5 text-sm transition-all duration-200 hover:border-accent/15 hover:bg-surface-hover hover:shadow-[0_0_16px_rgba(0,229,160,0.05)]"
+                  className="group flex items-center gap-2.5 rounded-lg border border-white/5 bg-surface px-3.5 py-2.5 text-sm transition-all duration-200 hover:border-accent/20 hover:bg-surface-hover hover:shadow-[0_0_20px_rgba(168,85,247,0.06)]"
                 >
                   <span className="text-base transition-transform duration-200 group-hover:scale-110">
                     {CATEGORY_ICONS[cat] ?? "📁"}
@@ -272,22 +255,19 @@ export function DashboardClient({
             </div>
           )}
 
-          {/* Targets */}
+          {/* Targets grid */}
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-white/8 px-8 py-20 text-center transition-colors hover:border-accent/15">
               <div className="mb-3 text-4xl opacity-20">🎯</div>
               <p className="text-sm font-medium text-muted">No targets found</p>
-              <p className="mt-1 text-xs text-muted-dim">
-                {search ? "Try a different search term" : "Add your first target to get started"}
-              </p>
               <Link
                 href="/targets/new"
-                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-accent px-5 py-2 text-xs font-semibold text-black transition-all duration-200 hover:bg-accent-dim hover:shadow-[0_0_16px_rgba(0,229,160,0.2)]"
+                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-accent px-5 py-2 text-xs font-semibold text-black transition-all duration-200 hover:bg-accent-dim hover:shadow-[0_0_20px_rgba(168,85,247,0.3)]"
               >
                 + Add target
               </Link>
             </div>
-          ) : view === "grid" ? (
+          ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {filtered.map((t) => (
                 <TargetCard
@@ -298,38 +278,24 @@ export function DashboardClient({
                 />
               ))}
             </div>
-          ) : (
-            <div className="flex flex-col gap-1">
-              {filtered.map((t) => (
-                <TargetListRow
-                  key={t.id}
-                  target={t}
-                  hosts={hostsByTarget.get(t.id) ?? []}
-                  findings={findingsByTarget.get(t.id) ?? []}
-                />
-              ))}
-            </div>
           )}
 
-          {/* Add target FAB */}
           <Link
             href="/targets/new"
-            className="fixed bottom-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-2xl font-bold text-black shadow-[0_0_20px_rgba(0,229,160,0.3)] transition-all duration-300 hover:scale-110 hover:shadow-[0_0_30px_rgba(0,229,160,0.4)]"
+            className="fixed bottom-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-2xl font-bold text-black shadow-[0_0_24px_rgba(168,85,247,0.4)] transition-all duration-300 hover:scale-110 hover:shadow-[0_0_36px_rgba(168,85,247,0.5)]"
           >
             +
           </Link>
         </div>
 
-        {/* Right sidebar: activity feed */}
+        {/* Activity sidebar */}
         <div className="w-full flex-shrink-0 lg:w-72">
           <div className="sticky top-6 rounded-xl border border-white/5 bg-surface overflow-hidden">
             <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-dim">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
                 Activity
               </span>
-              <span className="text-[10px] text-muted-dim">
-                {activities.length} events
-              </span>
+              <span className="text-[10px] text-muted-dim">{activities.length} events</span>
             </div>
             <div className="max-h-[400px] overflow-y-auto">
               {activities.length === 0 ? (
@@ -347,15 +313,11 @@ export function DashboardClient({
                       <div className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-accent/50" />
                       <div className="min-w-0 flex-1">
                         <p className="text-xs leading-relaxed">
-                          <span className="font-medium text-foreground">
-                            {a.user_name ?? "system"}
-                          </span>{" "}
+                          <span className="font-medium text-foreground">{a.user_name ?? "system"}</span>{" "}
                           <span className="text-muted">{a.action}</span>
                         </p>
                         {a.detail && (
-                          <p className="mt-0.5 text-[10px] text-muted-dim line-clamp-1">
-                            {a.detail}
-                          </p>
+                          <p className="mt-0.5 text-[10px] text-muted-dim line-clamp-1">{a.detail}</p>
                         )}
                         <p className="mt-0.5 font-mono text-[10px] text-muted-dim/60">
                           {formatTimeAgo(a.created_at)}
@@ -373,76 +335,10 @@ export function DashboardClient({
   );
 }
 
-function TargetListRow({
-  target,
-  hosts,
-  findings,
-}: {
-  target: Target;
-  hosts: Host[];
-  findings: Finding[];
-}) {
-  const topRisk = hosts.length > 0
-    ? hosts.reduce((max, h) =>
-        LIKELIHOOD_ORDER[h.exploitability] > LIKELIHOOD_ORDER[max]
-          ? h.exploitability
-          : max
-      , hosts[0].exploitability)
-    : null;
-
-  const critCount = findings.filter(
-    (f) => f.severity === "Critical" || f.severity === "High"
-  ).length;
-
-  return (
-    <Link
-      href={`/targets/${target.id}`}
-      className="group flex items-center gap-4 rounded-lg border border-white/[0.03] px-4 py-3 transition-all duration-200 hover:border-white/8 hover:bg-surface-hover"
-    >
-      <span className="text-lg transition-transform duration-200 group-hover:scale-110">
-        {CATEGORY_ICONS[target.category] ?? "📁"}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="font-medium">{target.name}</span>
-          <span
-            className={`rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${
-              STATUS_COLORS[target.status] ?? "bg-white/5 text-muted border-white/10"
-            }`}
-          >
-            {target.status}
-          </span>
-          {target.scope === "Out of Scope" && (
-            <span className="rounded-md border border-red-500/20 bg-red-500/8 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
-              Out of scope
-            </span>
-          )}
-        </div>
-        <div className="mt-1 flex gap-x-3 text-xs text-muted">
-          {target.ip_range && (
-            <span className="font-mono text-[11px]">{target.ip_range}</span>
-          )}
-          <span>
-            {hosts.length} host{hosts.length !== 1 ? "s" : ""}
-          </span>
-          <span>
-            {findings.length} finding{findings.length !== 1 ? "s" : ""}
-          </span>
-          {critCount > 0 && (
-            <span className="text-rose-400">{critCount} critical</span>
-          )}
-        </div>
-      </div>
-      <span className="text-xs text-muted-dim transition-colors group-hover:text-accent">→</span>
-    </Link>
-  );
-}
-
 function formatTimeAgo(date: string) {
   const now = Date.now();
   const then = new Date(date).getTime();
   const diff = Math.floor((now - then) / 1000);
-
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
