@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Cyber Recon Tracker",
-  description: "Private security recon workspace",
+  description: "Private pentest recon workspace",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

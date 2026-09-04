@@ -9,9 +9,21 @@ const barColors: Record<Likelihood, string> = {
   Critical: "bg-red-700",
 };
 
-export function RiskBar({ hosts }: { hosts: Host[] }) {
+const barHoverColors: Record<Likelihood, string> = {
+  Info: "hover:bg-slate-400",
+  Low: "hover:bg-teal-400",
+  Medium: "hover:bg-amber-400",
+  High: "hover:bg-red-400",
+  Critical: "hover:bg-red-600",
+};
+
+export function RiskBar({ hosts, compact }: { hosts: Host[]; compact?: boolean }) {
   if (hosts.length === 0) {
-    return <div className="h-1.5 w-full rounded-full bg-white/5" />;
+    return (
+      <div
+        className={`w-full rounded-full bg-white/5 ${compact ? "h-1" : "h-1.5"}`}
+      />
+    );
   }
 
   const counts: Record<Likelihood, number> = {
@@ -30,7 +42,15 @@ export function RiskBar({ hosts }: { hosts: Host[] }) {
   const ordered: Likelihood[] = ["Critical", "High", "Medium", "Low", "Info"];
 
   return (
-    <div className="flex h-1.5 w-full overflow-hidden rounded-full">
+    <div
+      className={`group flex w-full overflow-hidden rounded-full ${
+        compact ? "h-1" : "h-1.5"
+      }`}
+      title={ordered
+        .filter((l) => counts[l] > 0)
+        .map((l) => `${l}: ${counts[l]}`)
+        .join(" · ")}
+    >
       {ordered.map((level) => {
         const count = counts[level];
         if (count === 0) return null;
@@ -38,7 +58,7 @@ export function RiskBar({ hosts }: { hosts: Host[] }) {
         return (
           <div
             key={level}
-            className={`${barColors[level]} h-full`}
+            className={`h-full transition-all ${barColors[level]} ${barHoverColors[level]}`}
             style={{ width: `${pct}%` }}
           />
         );
@@ -49,7 +69,11 @@ export function RiskBar({ hosts }: { hosts: Host[] }) {
 
 export function highestLikelihood(hosts: Host[]): Likelihood | null {
   if (hosts.length === 0) return null;
-  return hosts.reduce((max, h) =>
-    LIKELIHOOD_ORDER[h.exploitability] > LIKELIHOOD_ORDER[max] ? h.exploitability : max
-  , hosts[0].exploitability);
+  return hosts.reduce(
+    (max, h) =>
+      LIKELIHOOD_ORDER[h.exploitability] > LIKELIHOOD_ORDER[max]
+        ? h.exploitability
+        : max,
+    hosts[0].exploitability
+  );
 }
