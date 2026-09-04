@@ -8,6 +8,19 @@ import { StatusDot } from "@/components/StatusDot";
 import { LikelihoodBadge } from "@/components/LikelihoodBadge";
 import { createClient } from "@/lib/supabase/client";
 
+interface ShodanResult {
+  ip: string;
+  hostname: string;
+  os: string | null;
+  country: string | null;
+  city: string | null;
+  isp: string | null;
+  organization: string | null;
+  ports: number[];
+  services: { port: number; protocol: string; product: string; version: string; banner: string }[];
+  vulnerabilities: string[];
+}
+
 export function HostsTab({
   targetId,
   hosts,
@@ -28,15 +41,17 @@ export function HostsTab({
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [shodanScanning, setShodanScanning] = useState(false);
+  const [shodanResult, setShodanResult] = useState<ShodanResult | null>(null);
 
   function resetForm() {
     setIp(""); setHostStatus("Live"); setPorts(""); setServices("");
     setOsGuess(""); setExploitability("Info"); setNotes(""); setCheckedBy("");
+    setShodanResult(null);
   }
 
   async function shodanScan() {
     if (!ip.trim()) { setError("Enter an IP first"); return; }
-    setError(null); setShodanScanning(true);
+    setError(null); setShodanScanning(true); setShodanResult(null);
     try {
       const res = await fetch("/api/shodan", {
         method: "POST",
@@ -46,6 +61,7 @@ export function HostsTab({
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Shodan scan failed"); setShodanScanning(false); return; }
 
+      setShodanResult(data);
       setPorts(data.ports?.join(", ") || "");
       setServices(data.services?.map((s: { product: string; port: number }) => `${s.product || s.port}`).join(", ") || "");
       setOsGuess(data.os || "");
@@ -104,21 +120,101 @@ export function HostsTab({
       </div>
 
       {adding && (
-        <form onSubmit={handleAdd} className="flex flex-col gap-4 rounded-xl border border-accent/15 bg-surface p-5 animate-fade-in">
+        <div className="flex flex-col gap-4 rounded-xl border border-accent/15 bg-surface p-5 animate-fade-in">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">New host</h3>
             <button type="button" onClick={() => { setAdding(false); resetForm(); }} className="text-muted-dim hover:text-foreground">✕</button>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <div className="flex flex-1 gap-2">
-              <input type="text" value={ip} onChange={(e) => setIp(e.target.value)} placeholder="IP address *" autoFocus className="flex-1 rounded-lg border border-white/5 bg-background px-3 py-2 font-mono text-sm outline-none transition-all focus:border-accent/30" />
-              <button type="button" onClick={shodanScan} disabled={shodanScanning} className="shrink-0 rounded-lg border border-accent/20 bg-accent/8 px-3 py-2 text-xs font-medium text-accent transition-all hover:bg-accent/15 disabled:opacity-50">
-                {shodanScanning ? "Scanning..." : "🔍 Shodan scan"}
-              </button>
-            </div>
+          {/* IP input + scan button */}
+          <div className="flex flex-1 gap-2">
+            <input type="text" value={ip} onChange={(e) => setIp(e.target.value)} onKeyDown={(e) => e.key === "Enter" && shodanScan()} placeholder="IP address *" autoFocus className="flex-1 rounded-lg border border-white/5 bg-background px-3 py-2 font-mono text-sm outline-none transition-all focus:border-accent/30 focus:shadow-[0_0_0_1px_rgba(168,85,247,0.1)]" />
+            <button type="button" onClick={shodanScan} disabled={shodanScanning} className="shrink-0 rounded-lg bg-gradient-to-r from-accent to-fuchsia px-4 py-2 text-xs font-semibold text-white transition-all hover:shadow-[0_0_16px_rgba(168,85,247,0.3)] disabled:opacity-50">
+              {shodanScanning ? (
+                <span className="flex items-center gap-1.5">
+                  <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.3" /><path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" /></svg>
+                  Scanning...
+                </span>
+              ) : "🔍 Scan"}
+            </button>
           </div>
 
+          {/* Inline Shodan preview */}
+          {shodanScanning && (
+            <div className="flex items-center gap-3 rounded-lg border border-accent/10 bg-accent/[0.03] px-4 py-6 animate-fade-in">
+              <svg className="h-5 w-5 animate-spin text-accent" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity="0.3" /><path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" /></svg>
+              <span className="text-sm text-muted">Querying Shodan for <span className="font-mono text-accent">{ip.trim() || "..."}</span>...</span>
+            </div>
+          )}
+
+          {shodanResult && !shodanScanning && (
+            <div className="flex flex-col gap-3 rounded-lg border border-accent/10 bg-accent/[0.03] p-4 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-widest text-accent">Shodan Results</span>
+                <span className="text-[10px] text-muted-dim">Auto-filled below</span>
+              </div>
+
+              {/* Quick stats row */}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                <div className="rounded-md bg-background/50 px-3 py-2">
+                  <p className="text-[9px] uppercase text-muted-dim">OS</p>
+                  <p className="text-xs font-medium">{shodanResult.os || "—"}</p>
+                </div>
+                <div className="rounded-md bg-background/50 px-3 py-2">
+                  <p className="text-[9px] uppercase text-muted-dim">Host</p>
+                  <p className="text-xs font-medium truncate">{shodanResult.hostname || "—"}</p>
+                </div>
+                <div className="rounded-md bg-background/50 px-3 py-2">
+                  <p className="text-[9px] uppercase text-muted-dim">Location</p>
+                  <p className="text-xs font-medium">{shodanResult.city && shodanResult.country ? `${shodanResult.city}, ${shodanResult.country}` : shodanResult.country || "—"}</p>
+                </div>
+                <div className="rounded-md bg-background/50 px-3 py-2">
+                  <p className="text-[9px] uppercase text-muted-dim">ISP</p>
+                  <p className="text-xs font-medium truncate">{shodanResult.isp || "—"}</p>
+                </div>
+                <div className="rounded-md bg-background/50 px-3 py-2">
+                  <p className="text-[9px] uppercase text-muted-dim">Open Ports</p>
+                  <p className="text-xs font-mono font-medium text-accent">{shodanResult.ports.length}</p>
+                </div>
+              </div>
+
+              {/* Services list */}
+              {shodanResult.services.length > 0 && (
+                <div>
+                  <p className="text-[9px] uppercase text-muted-dim mb-1.5">Services</p>
+                  <div className="flex flex-wrap gap-1">
+                    {shodanResult.services.map((s, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 rounded-md border border-white/5 bg-background/50 px-2 py-1 text-[11px]">
+                        <span className="font-mono font-medium text-accent">{s.port}</span>
+                        <span className="text-muted-dim">/</span>
+                        <span>{s.product || "unknown"}</span>
+                        {s.version && <span className="text-muted-dim">{s.version}</span>}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Vulnerabilities */}
+              {shodanResult.vulnerabilities.length > 0 && (
+                <div>
+                  <p className="text-[9px] uppercase text-muted-dim mb-1.5">Vulnerabilities</p>
+                  <div className="flex flex-wrap gap-1">
+                    {shodanResult.vulnerabilities.slice(0, 10).map((v, i) => (
+                      <span key={i} className="rounded-md border border-rose-500/20 bg-rose-500/10 px-1.5 py-0.5 font-mono text-[10px] text-rose-400">
+                        {v}
+                      </span>
+                    ))}
+                    {shodanResult.vulnerabilities.length > 10 && (
+                      <span className="px-1.5 py-0.5 text-[10px] text-muted-dim">+{shodanResult.vulnerabilities.length - 10} more</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Editable fields (auto-filled or manual) */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <label className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Status</label>
@@ -155,19 +251,19 @@ export function HostsTab({
           </div>
           {error && <div className="rounded-lg border border-rose-500/20 bg-rose-500/8 px-3 py-2 text-xs text-rose-400">{error}</div>}
           <div className="flex gap-2">
-            <button type="submit" disabled={loading} className="rounded-lg bg-gradient-to-r from-accent to-fuchsia px-5 py-2 text-xs font-semibold text-white hover:shadow-[0_0_20px_rgba(168,85,247,0.3)] disabled:opacity-50">
+            <button type="button" onClick={handleAdd} disabled={loading} className="rounded-lg bg-gradient-to-r from-accent to-fuchsia px-5 py-2 text-xs font-semibold text-white hover:shadow-[0_0_20px_rgba(168,85,247,0.3)] disabled:opacity-50">
               {loading ? "Adding..." : "Add host"}
             </button>
             <button type="button" onClick={() => { setAdding(false); resetForm(); }} className="rounded-lg border border-white/5 px-5 py-2 text-xs text-muted hover:border-white/10 hover:text-foreground">Cancel</button>
           </div>
-        </form>
+        </div>
       )}
 
       {hosts.length === 0 && !adding && (
         <button onClick={() => setAdding(true)} className="flex flex-col items-center justify-center rounded-xl border border-dashed border-white/8 px-8 py-16 text-center transition-all hover:border-accent/15 hover:bg-surface-hover">
           <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.03] text-xl text-muted-dim">+</div>
           <p className="text-sm font-medium text-muted">Add your first host</p>
-          <p className="mt-1 text-[11px] text-muted-dim">Enter IP and click Shodan scan for auto-discovery</p>
+          <p className="mt-1 text-[11px] text-muted-dim">Enter IP and click Scan for Shodan recon</p>
         </button>
       )}
 
@@ -179,7 +275,7 @@ export function HostsTab({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-sm">{h.ip}</span>
-                  {h.os_guess && <span className="text-[11px] text-muted-dim/60">· {h.os_guess}</span>}
+                  {h.os_guess && <span className="text-[11px] text-muted-dim">· {h.os_guess}</span>}
                   {h.checked_by === "shodan" && (
                     <span className="rounded bg-accent/10 px-1 py-0.5 text-[9px] font-medium text-accent">SHODAN</span>
                   )}

@@ -319,7 +319,7 @@ export function DashboardClient({
                         {a.detail && (
                           <p className="mt-0.5 text-[10px] text-muted-dim line-clamp-1">{a.detail}</p>
                         )}
-                        <p className="mt-0.5 font-mono text-[10px] text-muted-dim/60">
+                        <p className="mt-0.5 font-mono text-[10px] text-muted-dim">
                           {formatTimeAgo(a.created_at)}
                         </p>
                       </div>

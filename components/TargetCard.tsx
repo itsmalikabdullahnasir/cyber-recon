@@ -58,11 +58,11 @@ export function TargetCard({
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
             {liveHosts}/{hosts.length} live
           </span>
-          <span className="text-white/10">|</span>
+          <span className="text-muted-dim">|</span>
           <span>{findings.length} finding{findings.length !== 1 ? "s" : ""}</span>
           {critCount > 0 && (
             <>
-              <span className="text-white/10">|</span>
+              <span className="text-muted-dim">|</span>
               <span className="text-pink-400">{critCount} critical</span>
             </>
           )}
