@@ -99,14 +99,14 @@ export const PRIORITY_ORDER: Record<Priority, number> = {
 };
 
 export const STATUS_COLORS: Record<TargetStatus, string> = {
-  "Not Started": "bg-slate-500/15 text-slate-400",
-  Recon: "bg-blue-500/15 text-blue-400",
-  Scanning: "bg-cyan-500/15 text-cyan-400",
-  Enumeration: "bg-indigo-500/15 text-indigo-400",
-  Exploitation: "bg-amber-500/15 text-amber-400",
-  "Post-Exploitation": "bg-orange-500/15 text-orange-400",
-  Reporting: "bg-purple-500/15 text-purple-400",
-  Done: "bg-emerald-500/15 text-emerald-400",
+  "Not Started": "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
+  Recon: "bg-sky-500/10 text-sky-400 border-sky-500/20",
+  Scanning: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+  Enumeration: "bg-violet-500/10 text-violet-400 border-violet-500/20",
+  Exploitation: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  "Post-Exploitation": "bg-orange-500/10 text-orange-400 border-orange-500/20",
+  Reporting: "bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20",
+  Done: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
 };
 
 export const CATEGORY_ICONS: Record<string, string> = {

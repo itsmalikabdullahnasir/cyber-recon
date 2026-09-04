@@ -21,10 +21,10 @@ export function FilterChips({
         <button
           key={cat}
           onClick={() => onSelect(cat)}
-          className={`flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-all ${
+          className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
             active === cat
-              ? "border-accent/30 bg-accent/10 text-accent"
-              : "border-white/6 bg-surface text-muted hover:border-white/12 hover:text-foreground"
+              ? "border-accent/30 bg-accent/10 text-accent shadow-[0_0_8px_rgba(0,229,160,0.1)]"
+              : "border-white/5 bg-surface text-muted hover:border-white/10 hover:text-foreground"
           }`}
         >
           {cat}

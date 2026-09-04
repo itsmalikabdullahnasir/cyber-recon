@@ -26,19 +26,19 @@ export function NotesTab({ target }: { target: Target }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-muted">
-          Notes and documentation for this target
+        <p className="text-[11px] font-medium text-muted-dim">
+          Notes and documentation
         </p>
         <div className="flex items-center gap-2">
           {saved && (
-            <span className="text-xs text-emerald-400">Saved</span>
+            <span className="text-[11px] text-emerald-400">Saved</span>
           )}
           <button
             onClick={handleSave}
             disabled={loading}
-            className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-black transition-colors hover:bg-accent/80 disabled:opacity-50"
+            className="rounded-md bg-accent px-4 py-1.5 text-xs font-semibold text-black transition-all duration-200 hover:bg-accent-dim hover:shadow-[0_0_16px_rgba(0,229,160,0.2)] disabled:opacity-50"
           >
-            {loading ? "Saving..." : "Save notes"}
+            {loading ? "Saving..." : "Save"}
           </button>
         </div>
       </div>
@@ -46,12 +46,11 @@ export function NotesTab({ target }: { target: Target }) {
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         placeholder="Add notes, methodology, observations..."
-        rows={16}
-        className="rounded-lg border border-white/10 bg-surface px-4 py-3 font-mono text-xs leading-relaxed outline-none focus:border-accent/40"
+        rows={18}
+        className="rounded-xl border border-white/5 bg-surface px-4 py-3 font-mono text-xs leading-relaxed outline-none transition-all duration-200 focus:border-accent/20 focus:shadow-[0_0_0_1px_rgba(0,229,160,0.08)]"
       />
-      <p className="text-[10px] text-muted/40">
-        Tip: document your methodology, tools used, and key observations
-        here. Notes are shared between all team members.
+      <p className="text-[10px] text-muted-dim/50">
+        Document your methodology, tools used, and key observations. Shared between all team members.
       </p>
     </div>
   );

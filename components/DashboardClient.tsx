@@ -11,6 +11,7 @@ import {
 import { TargetCard } from "@/components/TargetCard";
 import { SearchBar } from "@/components/SearchBar";
 import { FilterChips } from "@/components/FilterChips";
+import { StatCard } from "@/components/StatCard";
 
 export function DashboardClient({
   targets,
@@ -90,14 +91,6 @@ export function DashboardClient({
     return result;
   }, [targets, filter, search, hostsByTarget, findingsByTarget]);
 
-  const severityDistribution = useMemo(() => {
-    const dist = { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0 };
-    for (const f of findings) {
-      dist[f.severity as keyof typeof dist]++;
-    }
-    return dist;
-  }, [findings]);
-
   const highRisk = hosts.filter(
     (h) => h.exploitability === "High" || h.exploitability === "Critical"
   ).length;
@@ -105,6 +98,14 @@ export function DashboardClient({
   const criticalFindings = findings.filter(
     (f) => f.severity === "Critical" || f.severity === "High"
   ).length;
+
+  const severityDistribution = useMemo(() => {
+    const dist = { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0 };
+    for (const f of findings) {
+      dist[f.severity as keyof typeof dist]++;
+    }
+    return dist;
+  }, [findings]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -146,16 +147,16 @@ export function DashboardClient({
 
       {/* Severity distribution bar */}
       {findings.length > 0 && (
-        <div className="rounded-xl border border-white/6 bg-surface p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-medium text-muted">
-              Finding severity distribution
+        <div className="rounded-xl border border-white/5 bg-surface p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-dim">
+              Severity distribution
             </span>
             <span className="text-[10px] text-muted-dim">
               {findings.length} total
             </span>
           </div>
-          <div className="flex h-2 overflow-hidden rounded-full">
+          <div className="flex h-1.5 overflow-hidden rounded-full">
             {(["Critical", "High", "Medium", "Low", "Info"] as const).map(
               (sev) => {
                 const count =
@@ -164,15 +165,15 @@ export function DashboardClient({
                 const pct = (count / findings.length) * 100;
                 const colors: Record<string, string> = {
                   Critical: "bg-red-500",
-                  High: "bg-red-400",
+                  High: "bg-rose-400",
                   Medium: "bg-amber-400",
-                  Low: "bg-teal-400",
-                  Info: "bg-slate-400",
+                  Low: "bg-emerald-400",
+                  Info: "bg-zinc-400",
                 };
                 return (
                   <div
                     key={sev}
-                    className={`${colors[sev]} h-full transition-all`}
+                    className={`${colors[sev]} h-full transition-all duration-700`}
                     style={{ width: `${pct}%` }}
                     title={`${sev}: ${count}`}
                   />
@@ -180,17 +181,17 @@ export function DashboardClient({
               }
             )}
           </div>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1">
             {(["Critical", "High", "Medium", "Low", "Info"] as const).map(
               (sev) => {
                 const count =
                   severityDistribution[sev as keyof typeof severityDistribution];
                 const dotColors: Record<string, string> = {
                   Critical: "bg-red-500",
-                  High: "bg-red-400",
+                  High: "bg-rose-400",
                   Medium: "bg-amber-400",
-                  Low: "bg-teal-400",
-                  Info: "bg-slate-400",
+                  Low: "bg-emerald-400",
+                  Info: "bg-zinc-400",
                 };
                 return (
                   <div key={sev} className="flex items-center gap-1.5 text-[10px] text-muted">
@@ -216,10 +217,10 @@ export function DashboardClient({
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setView("grid")}
-                  className={`rounded p-1.5 transition-colors ${
+                  className={`rounded-md p-1.5 transition-all duration-200 ${
                     view === "grid"
-                      ? "bg-white/5 text-foreground"
-                      : "text-muted hover:text-foreground"
+                      ? "bg-accent/10 text-accent"
+                      : "text-muted-dim hover:text-foreground"
                   }`}
                   title="Grid view"
                 >
@@ -229,10 +230,10 @@ export function DashboardClient({
                 </button>
                 <button
                   onClick={() => setView("list")}
-                  className={`rounded p-1.5 transition-colors ${
+                  className={`rounded-md p-1.5 transition-all duration-200 ${
                     view === "list"
-                      ? "bg-white/5 text-foreground"
-                      : "text-muted hover:text-foreground"
+                      ? "bg-accent/10 text-accent"
+                      : "text-muted-dim hover:text-foreground"
                   }`}
                   title="List view"
                 >
@@ -257,13 +258,13 @@ export function DashboardClient({
                 <button
                   key={cat}
                   onClick={() => setFilter(cat)}
-                  className="group flex items-center gap-2 rounded-lg border border-white/6 bg-surface px-3 py-2 text-sm transition-all hover:border-accent/20 hover:bg-surface-hover"
+                  className="group flex items-center gap-2.5 rounded-lg border border-white/5 bg-surface px-3.5 py-2.5 text-sm transition-all duration-200 hover:border-accent/15 hover:bg-surface-hover hover:shadow-[0_0_16px_rgba(0,229,160,0.05)]"
                 >
-                  <span className="text-base">
+                  <span className="text-base transition-transform duration-200 group-hover:scale-110">
                     {CATEGORY_ICONS[cat] ?? "📁"}
                   </span>
                   <span className="font-medium">{cat}</span>
-                  <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] text-muted group-hover:bg-accent/10 group-hover:text-accent">
+                  <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-dim transition-colors group-hover:bg-accent/10 group-hover:text-accent">
                     {count}
                   </span>
                 </button>
@@ -273,14 +274,17 @@ export function DashboardClient({
 
           {/* Targets */}
           {filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-white/8 px-8 py-20 text-center">
-              <div className="mb-3 text-3xl opacity-30">🎯</div>
-              <p className="text-sm text-muted">No targets found</p>
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-white/8 px-8 py-20 text-center transition-colors hover:border-accent/15">
+              <div className="mb-3 text-4xl opacity-20">🎯</div>
+              <p className="text-sm font-medium text-muted">No targets found</p>
+              <p className="mt-1 text-xs text-muted-dim">
+                {search ? "Try a different search term" : "Add your first target to get started"}
+              </p>
               <Link
                 href="/targets/new"
-                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-medium text-black transition-colors hover:bg-accent-dim"
+                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-accent px-5 py-2 text-xs font-semibold text-black transition-all duration-200 hover:bg-accent-dim hover:shadow-[0_0_16px_rgba(0,229,160,0.2)]"
               >
-                + Add first target
+                + Add target
               </Link>
             </div>
           ) : view === "grid" ? (
@@ -310,7 +314,7 @@ export function DashboardClient({
           {/* Add target FAB */}
           <Link
             href="/targets/new"
-            className="fixed bottom-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-2xl font-bold text-black shadow-lg shadow-accent/20 transition-all hover:scale-105 hover:bg-accent-dim"
+            className="fixed bottom-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-2xl font-bold text-black shadow-[0_0_20px_rgba(0,229,160,0.3)] transition-all duration-300 hover:scale-110 hover:shadow-[0_0_30px_rgba(0,229,160,0.4)]"
           >
             +
           </Link>
@@ -318,28 +322,31 @@ export function DashboardClient({
 
         {/* Right sidebar: activity feed */}
         <div className="w-full flex-shrink-0 lg:w-72">
-          <div className="sticky top-6 rounded-xl border border-white/6 bg-surface">
-            <div className="flex items-center justify-between border-b border-white/6 px-4 py-3">
-              <span className="text-xs font-medium">Recent activity</span>
+          <div className="sticky top-6 rounded-xl border border-white/5 bg-surface overflow-hidden">
+            <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-dim">
+                Activity
+              </span>
               <span className="text-[10px] text-muted-dim">
                 {activities.length} events
               </span>
             </div>
             <div className="max-h-[400px] overflow-y-auto">
               {activities.length === 0 ? (
-                <div className="px-4 py-8 text-center text-xs text-muted">
-                  No activity yet
+                <div className="px-4 py-10 text-center">
+                  <div className="mb-2 text-2xl opacity-20">📡</div>
+                  <p className="text-xs text-muted-dim">No activity yet</p>
                 </div>
               ) : (
                 <div className="flex flex-col">
                   {activities.slice(0, 15).map((a) => (
                     <div
                       key={a.id}
-                      className="flex gap-3 border-b border-white/3 px-4 py-2.5 last:border-0"
+                      className="flex gap-3 border-b border-white/[0.03] px-4 py-2.5 transition-colors hover:bg-surface-hover last:border-0"
                     >
-                      <div className="mt-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-accent/60" />
+                      <div className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-accent/50" />
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs">
+                        <p className="text-xs leading-relaxed">
                           <span className="font-medium text-foreground">
                             {a.user_name ?? "system"}
                           </span>{" "}
@@ -350,7 +357,7 @@ export function DashboardClient({
                             {a.detail}
                           </p>
                         )}
-                        <p className="mt-0.5 font-mono text-[10px] text-muted-dim">
+                        <p className="mt-0.5 font-mono text-[10px] text-muted-dim/60">
                           {formatTimeAgo(a.created_at)}
                         </p>
                       </div>
@@ -362,37 +369,6 @@ export function DashboardClient({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function StatCard({
-  icon,
-  label,
-  value,
-  accent,
-  sub,
-}: {
-  icon: string;
-  label: string;
-  value: number;
-  accent?: boolean;
-  sub?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-white/6 bg-surface p-4 transition-colors hover:bg-surface-hover">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted">{label}</span>
-        <span className="text-sm opacity-60">{icon}</span>
-      </div>
-      <p
-        className={`mt-1 text-2xl font-bold tracking-tight ${
-          accent ? "text-red-400" : "text-foreground"
-        }`}
-      >
-        {value}
-      </p>
-      {sub && <p className="mt-0.5 text-[10px] text-muted-dim">{sub}</p>}
     </div>
   );
 }
@@ -421,28 +397,30 @@ function TargetListRow({
   return (
     <Link
       href={`/targets/${target.id}`}
-      className="group flex items-center gap-4 rounded-lg border border-white/4 px-4 py-3 transition-all hover:border-white/10 hover:bg-surface-hover"
+      className="group flex items-center gap-4 rounded-lg border border-white/[0.03] px-4 py-3 transition-all duration-200 hover:border-white/8 hover:bg-surface-hover"
     >
-      <span className="text-lg">{CATEGORY_ICONS[target.category] ?? "📁"}</span>
+      <span className="text-lg transition-transform duration-200 group-hover:scale-110">
+        {CATEGORY_ICONS[target.category] ?? "📁"}
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="font-medium">{target.name}</span>
           <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-              STATUS_COLORS[target.status] ?? "bg-white/5 text-muted"
+            className={`rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${
+              STATUS_COLORS[target.status] ?? "bg-white/5 text-muted border-white/10"
             }`}
           >
             {target.status}
           </span>
           {target.scope === "Out of Scope" && (
-            <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
+            <span className="rounded-md border border-red-500/20 bg-red-500/8 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
               Out of scope
             </span>
           )}
         </div>
-        <div className="mt-0.5 flex gap-x-3 text-xs text-muted">
+        <div className="mt-1 flex gap-x-3 text-xs text-muted">
           {target.ip_range && (
-            <span className="font-mono">{target.ip_range}</span>
+            <span className="font-mono text-[11px]">{target.ip_range}</span>
           )}
           <span>
             {hosts.length} host{hosts.length !== 1 ? "s" : ""}
@@ -451,11 +429,11 @@ function TargetListRow({
             {findings.length} finding{findings.length !== 1 ? "s" : ""}
           </span>
           {critCount > 0 && (
-            <span className="text-red-400">{critCount} critical</span>
+            <span className="text-rose-400">{critCount} critical</span>
           )}
         </div>
       </div>
-      <span className="text-xs text-muted">→</span>
+      <span className="text-xs text-muted-dim transition-colors group-hover:text-accent">→</span>
     </Link>
   );
 }

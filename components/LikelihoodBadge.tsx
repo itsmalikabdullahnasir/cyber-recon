@@ -1,18 +1,18 @@
 import type { Likelihood } from "@/lib/types";
 
-const config: Record<Likelihood, { bg: string; text: string; dot: string }> = {
-  Info: { bg: "bg-slate-500/10", text: "text-slate-400", dot: "bg-slate-400" },
-  Low: { bg: "bg-teal-500/10", text: "text-teal-400", dot: "bg-teal-400" },
-  Medium: { bg: "bg-amber-500/10", text: "text-amber-400", dot: "bg-amber-400" },
-  High: { bg: "bg-red-500/10", text: "text-red-400", dot: "bg-red-400" },
-  Critical: { bg: "bg-red-700/15", text: "text-red-300", dot: "bg-red-300" },
+const config: Record<Likelihood, { bg: string; text: string; dot: string; border: string }> = {
+  Info: { bg: "bg-zinc-500/8", text: "text-zinc-400", dot: "bg-zinc-400", border: "border-zinc-500/20" },
+  Low: { bg: "bg-emerald-500/8", text: "text-emerald-400", dot: "bg-emerald-400", border: "border-emerald-500/20" },
+  Medium: { bg: "bg-amber-500/8", text: "text-amber-400", dot: "bg-amber-400", border: "border-amber-500/20" },
+  High: { bg: "bg-rose-500/8", text: "text-rose-400", dot: "bg-rose-400", border: "border-rose-500/20" },
+  Critical: { bg: "bg-red-600/12", text: "text-red-300", dot: "bg-red-300", border: "border-red-500/25" },
 };
 
 export function LikelihoodBadge({ value }: { value: Likelihood }) {
   const c = config[value];
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${c.bg} ${c.text}`}
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-semibold tracking-wide ${c.bg} ${c.text} ${c.border}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${c.dot}`} />
       {value}

@@ -90,18 +90,18 @@ export function HostsTab({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-muted">
+        <p className="text-[11px] font-medium text-muted-dim">
           {hosts.length} host{hosts.length !== 1 ? "s" : ""}
           {hosts.length > 0 && (
-            <span className="ml-2 text-muted/60">
-              · sorted by risk
+            <span className="ml-2 text-muted-dim/60">
+              sorted by risk
             </span>
           )}
         </p>
         {!adding && (
           <button
             onClick={() => setAdding(true)}
-            className="rounded-md bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
+            className="rounded-md border border-accent/20 bg-accent/8 px-3 py-1.5 text-xs font-medium text-accent transition-all duration-200 hover:border-accent/30 hover:bg-accent/15 hover:shadow-[0_0_12px_rgba(0,229,160,0.1)]"
           >
             + Add host
           </button>
@@ -111,14 +111,14 @@ export function HostsTab({
       {adding && (
         <form
           onSubmit={handleAdd}
-          className="flex flex-col gap-4 rounded-lg border border-accent/20 bg-surface p-5"
+          className="flex flex-col gap-4 rounded-xl border border-accent/15 bg-surface p-5 animate-fade-in"
         >
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium">New host</h3>
+            <h3 className="text-sm font-semibold">New host</h3>
             <button
               type="button"
               onClick={() => { setAdding(false); resetForm(); }}
-              className="text-xs text-muted hover:text-foreground"
+              className="text-muted-dim transition-colors hover:text-foreground"
             >
               ✕
             </button>
@@ -126,8 +126,8 @@ export function HostsTab({
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-muted">
-                IP address <span className="text-red-400">*</span>
+              <label className="text-[11px] font-medium text-muted-dim">
+                IP address <span className="text-rose-400">*</span>
               </label>
               <input
                 type="text"
@@ -135,17 +135,15 @@ export function HostsTab({
                 onChange={(e) => setIp(e.target.value)}
                 placeholder="111.68.99.1"
                 autoFocus
-                className="rounded-md border border-white/10 bg-background px-3 py-2 font-mono text-sm outline-none focus:border-accent/40"
+                className="rounded-lg border border-white/5 bg-background px-3 py-2 font-mono text-sm outline-none transition-all duration-200 focus:border-accent/30 focus:shadow-[0_0_0_1px_rgba(0,229,160,0.1)]"
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-muted">
-                Status
-              </label>
+              <label className="text-[11px] font-medium text-muted-dim">Status</label>
               <select
                 value={hostStatus}
                 onChange={(e) => setHostStatus(e.target.value as HostStatus)}
-                className="rounded-md border border-white/10 bg-background px-3 py-2 text-sm outline-none focus:border-accent/40"
+                className="rounded-lg border border-white/5 bg-background px-3 py-2 text-sm outline-none focus:border-accent/30"
               >
                 <option>Live</option>
                 <option>Down</option>
@@ -153,15 +151,11 @@ export function HostsTab({
               </select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-muted">
-                Likelihood
-              </label>
+              <label className="text-[11px] font-medium text-muted-dim">Likelihood</label>
               <select
                 value={exploitability}
-                onChange={(e) =>
-                  setExploitability(e.target.value as Likelihood)
-                }
-                className="rounded-md border border-white/10 bg-background px-3 py-2 text-sm outline-none focus:border-accent/40"
+                onChange={(e) => setExploitability(e.target.value as Likelihood)}
+                className="rounded-lg border border-white/5 bg-background px-3 py-2 text-sm outline-none focus:border-accent/30"
               >
                 <option>Info</option>
                 <option>Low</option>
@@ -171,72 +165,64 @@ export function HostsTab({
               </select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-muted">
-                OS guess
-              </label>
+              <label className="text-[11px] font-medium text-muted-dim">OS guess</label>
               <input
                 type="text"
                 value={osGuess}
                 onChange={(e) => setOsGuess(e.target.value)}
                 placeholder="e.g. Ubuntu 22.04"
-                className="rounded-md border border-white/10 bg-background px-3 py-2 text-sm outline-none focus:border-accent/40"
+                className="rounded-lg border border-white/5 bg-background px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-accent/30 focus:shadow-[0_0_0_1px_rgba(0,229,160,0.1)]"
               />
             </div>
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-muted">
-              Open ports
-            </label>
+            <label className="text-[11px] font-medium text-muted-dim">Open ports</label>
             <input
               type="text"
               value={ports}
               onChange={(e) => setPorts(e.target.value)}
               placeholder="22, 80, 443, 3306, 8080"
-              className="rounded-md border border-white/10 bg-background px-3 py-2 font-mono text-sm outline-none focus:border-accent/40"
+              className="rounded-lg border border-white/5 bg-background px-3 py-2 font-mono text-sm outline-none transition-all duration-200 focus:border-accent/30 focus:shadow-[0_0_0_1px_rgba(0,229,160,0.1)]"
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-muted">
-              Services
-            </label>
+            <label className="text-[11px] font-medium text-muted-dim">Services</label>
             <input
               type="text"
               value={services}
               onChange={(e) => setServices(e.target.value)}
               placeholder="SSH, HTTP, HTTPS, MySQL, Apache Tomcat"
-              className="rounded-md border border-white/10 bg-background px-3 py-2 text-sm outline-none focus:border-accent/40"
+              className="rounded-lg border border-white/5 bg-background px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-accent/30 focus:shadow-[0_0_0_1px_rgba(0,229,160,0.1)]"
             />
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-muted">
-                Checked by
-              </label>
+              <label className="text-[11px] font-medium text-muted-dim">Checked by</label>
               <input
                 type="text"
                 value={checkedBy}
                 onChange={(e) => setCheckedBy(e.target.value)}
                 placeholder="e.g. You"
-                className="rounded-md border border-white/10 bg-background px-3 py-2 text-sm outline-none focus:border-accent/40"
+                className="rounded-lg border border-white/5 bg-background px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-accent/30 focus:shadow-[0_0_0_1px_rgba(0,229,160,0.1)]"
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-muted">Notes</label>
+              <label className="text-[11px] font-medium text-muted-dim">Notes</label>
               <input
                 type="text"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Quick notes about this host"
-                className="rounded-md border border-white/10 bg-background px-3 py-2 text-sm outline-none focus:border-accent/40"
+                placeholder="Quick notes"
+                className="rounded-lg border border-white/5 bg-background px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-accent/30 focus:shadow-[0_0_0_1px_rgba(0,229,160,0.1)]"
               />
             </div>
           </div>
 
           {error && (
-            <div className="rounded-md bg-red-500/10 px-3 py-2 text-xs text-red-400">
+            <div className="rounded-lg border border-red-500/20 bg-red-500/8 px-3 py-2 text-xs text-red-400">
               {error}
             </div>
           )}
@@ -245,14 +231,14 @@ export function HostsTab({
             <button
               type="submit"
               disabled={loading}
-              className="rounded-md bg-accent px-4 py-2 text-xs font-medium text-black transition-colors hover:bg-accent/80 disabled:opacity-50"
+              className="rounded-lg bg-accent px-5 py-2 text-xs font-semibold text-black transition-all duration-200 hover:bg-accent-dim hover:shadow-[0_0_16px_rgba(0,229,160,0.2)] disabled:opacity-50"
             >
               {loading ? "Adding..." : "Add host"}
             </button>
             <button
               type="button"
               onClick={() => { setAdding(false); resetForm(); }}
-              className="rounded-md border border-white/10 px-4 py-2 text-xs text-muted transition-colors hover:text-foreground"
+              className="rounded-lg border border-white/5 px-5 py-2 text-xs text-muted transition-all duration-200 hover:border-white/10 hover:text-foreground"
             >
               Cancel
             </button>
@@ -263,14 +249,14 @@ export function HostsTab({
       {hosts.length === 0 && !adding && (
         <button
           onClick={() => setAdding(true)}
-          className="flex flex-col items-center justify-center rounded-lg border border-dashed border-white/10 px-8 py-16 text-center transition-colors hover:border-accent/30 hover:bg-surface"
+          className="flex flex-col items-center justify-center rounded-xl border border-dashed border-white/8 px-8 py-16 text-center transition-all duration-300 hover:border-accent/15 hover:bg-surface-hover"
         >
-          <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-lg text-muted">
+          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.03] text-xl text-muted-dim transition-colors group-hover:bg-accent/10">
             +
           </div>
-          <p className="text-sm text-muted">Add your first host</p>
-          <p className="mt-1 text-xs text-muted/60">
-            IP addresses, domains, servers — anything with an IP
+          <p className="text-sm font-medium text-muted">Add your first host</p>
+          <p className="mt-1 text-[11px] text-muted-dim">
+            IP addresses, domains, servers
           </p>
         </button>
       )}
@@ -281,19 +267,19 @@ export function HostsTab({
             <Link
               key={h.id}
               href={`/targets/${targetId}/hosts/${h.id}`}
-              className="group flex items-center gap-4 rounded-lg border border-white/4 px-4 py-3 transition-colors hover:border-white/10 hover:bg-surface-hover"
+              className="group flex items-center gap-4 rounded-lg border border-white/[0.03] px-4 py-3 transition-all duration-200 hover:border-white/8 hover:bg-surface-hover"
             >
               <StatusDot status={h.status} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-sm">{h.ip}</span>
                   {h.os_guess && (
-                    <span className="text-xs text-muted/60">
+                    <span className="text-[11px] text-muted-dim/60">
                       · {h.os_guess}
                     </span>
                   )}
                 </div>
-                <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted">
+                <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted">
                   {h.open_ports && (
                     <span className="font-mono">{h.open_ports}</span>
                   )}
@@ -309,10 +295,12 @@ export function HostsTab({
                   handleDelete(h.id);
                 }}
                 disabled={deletingId === h.id}
-                className="rounded p-1 text-muted opacity-0 transition-all hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100"
+                className="rounded-md p-1.5 text-muted-dim opacity-0 transition-all duration-200 hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100"
                 title="Delete host"
               >
-                {deletingId === h.id ? "..." : "🗑"}
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                </svg>
               </button>
             </Link>
           ))}

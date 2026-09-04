@@ -22,35 +22,31 @@ export function TargetCard({
   return (
     <Link
       href={`/targets/${target.id}`}
-      className="group flex flex-col gap-3 rounded-xl border border-white/6 bg-surface p-4 transition-all hover:border-white/12 hover:bg-surface-hover hover:shadow-lg hover:shadow-black/20"
+      className="group flex flex-col gap-3.5 rounded-xl border border-white/5 bg-surface p-4 transition-all duration-300 hover:border-accent/15 hover:bg-surface-hover hover:shadow-[0_0_30px_rgba(0,229,160,0.04)]"
     >
       {/* Header */}
       <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 text-base transition-colors group-hover:bg-accent/10">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/[0.03] text-base transition-all duration-300 group-hover:bg-accent/10 group-hover:shadow-[0_0_12px_rgba(0,229,160,0.1)]">
             {CATEGORY_ICONS[target.category] ?? "📁"}
           </div>
           <div>
-            <h3 className="text-sm font-semibold">{target.name}</h3>
-            <div className="flex items-center gap-1.5">
-              {target.domain && (
-                <span className="text-[11px] text-muted">{target.domain}</span>
-              )}
-            </div>
+            <h3 className="text-sm font-semibold tracking-tight">{target.name}</h3>
+            {target.domain && (
+              <span className="text-[11px] text-muted-dim">{target.domain}</span>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          {target.scope === "Out of Scope" && (
-            <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
-              Out of scope
-            </span>
-          )}
-        </div>
+        {target.scope === "Out of Scope" && (
+          <span className="rounded-md border border-red-500/20 bg-red-500/8 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
+            Out of scope
+          </span>
+        )}
       </div>
 
       {/* IP range */}
       {target.ip_range && (
-        <div className="font-mono text-xs text-muted-dim">
+        <div className="font-mono text-[11px] text-muted-dim">
           {target.ip_range}
         </div>
       )}
@@ -64,14 +60,14 @@ export function TargetCard({
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
           {liveHosts}/{hosts.length} live
         </span>
-        <span>·</span>
+        <span className="text-white/10">|</span>
         <span>
           {findings.length} finding{findings.length !== 1 ? "s" : ""}
         </span>
         {critCount > 0 && (
           <>
-            <span>·</span>
-            <span className="text-red-400">
+            <span className="text-white/10">|</span>
+            <span className="text-rose-400">
               {critCount} critical
             </span>
           </>
@@ -79,10 +75,10 @@ export function TargetCard({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between border-t border-white/4 pt-2.5">
+      <div className="flex items-center justify-between border-t border-white/4 pt-3">
         <span
-          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-            STATUS_COLORS[target.status] ?? "bg-white/5 text-muted"
+          className={`rounded-md border px-2 py-0.5 text-[10px] font-medium ${
+            STATUS_COLORS[target.status] ?? "bg-white/5 text-muted border-white/10"
           }`}
         >
           {target.status}

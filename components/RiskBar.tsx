@@ -2,26 +2,18 @@ import type { Host, Likelihood } from "@/lib/types";
 import { LIKELIHOOD_ORDER } from "@/lib/types";
 
 const barColors: Record<Likelihood, string> = {
-  Info: "bg-slate-500",
-  Low: "bg-teal-500",
+  Info: "bg-zinc-500",
+  Low: "bg-emerald-500",
   Medium: "bg-amber-500",
-  High: "bg-red-500",
-  Critical: "bg-red-700",
-};
-
-const barHoverColors: Record<Likelihood, string> = {
-  Info: "hover:bg-slate-400",
-  Low: "hover:bg-teal-400",
-  Medium: "hover:bg-amber-400",
-  High: "hover:bg-red-400",
-  Critical: "hover:bg-red-600",
+  High: "bg-rose-500",
+  Critical: "bg-red-500",
 };
 
 export function RiskBar({ hosts, compact }: { hosts: Host[]; compact?: boolean }) {
   if (hosts.length === 0) {
     return (
       <div
-        className={`w-full rounded-full bg-white/5 ${compact ? "h-1" : "h-1.5"}`}
+        className={`w-full rounded-full bg-white/4 ${compact ? "h-1" : "h-1.5"}`}
       />
     );
   }
@@ -43,9 +35,7 @@ export function RiskBar({ hosts, compact }: { hosts: Host[]; compact?: boolean }
 
   return (
     <div
-      className={`group flex w-full overflow-hidden rounded-full ${
-        compact ? "h-1" : "h-1.5"
-      }`}
+      className={`flex w-full overflow-hidden rounded-full ${compact ? "h-1" : "h-1.5"}`}
       title={ordered
         .filter((l) => counts[l] > 0)
         .map((l) => `${l}: ${counts[l]}`)
@@ -58,7 +48,7 @@ export function RiskBar({ hosts, compact }: { hosts: Host[]; compact?: boolean }
         return (
           <div
             key={level}
-            className={`h-full transition-all ${barColors[level]} ${barHoverColors[level]}`}
+            className={`h-full transition-all duration-500 ${barColors[level]}`}
             style={{ width: `${pct}%` }}
           />
         );
