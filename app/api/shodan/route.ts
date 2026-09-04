@@ -19,9 +19,56 @@ async function tryInternetDB(ip: string) {
   return res.json();
 }
 
+async function searchNVD(keyword: string) {
+  const res = await fetch(
+    `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(keyword)}&resultsPerPage=5`
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.vulnerabilities || []).map((v: any) => {
+    const cve = v.cve;
+    const metrics = cve.metrics?.cvssMetricV31?.[0]?.cvssData ||
+                    cve.metrics?.cvssMetricV30?.[0]?.cvssData ||
+                    cve.metrics?.cvssMetricV2?.[0]?.cvssData || {};
+    return {
+      id: cve.id,
+      description: cve.descriptions?.find((d: any) => d.lang === "en")?.value || "",
+      cvss: metrics.baseScore || null,
+      severity: metrics.baseSeverity || null,
+      vector: metrics.vectorString || null,
+      published: cve.published,
+      references: (cve.references || []).slice(0, 3).map((r: any) => r.url),
+    };
+  });
+}
+
+async function lookupCVEsForServices(services: { product: string; version: string; port: number }[]) {
+  const queries: string[] = [];
+  for (const s of services) {
+    if (s.product && s.product !== "unknown") {
+      const q = s.version ? `${s.product} ${s.version}` : s.product;
+      if (!queries.includes(q)) queries.push(q);
+    }
+  }
+
+  const results: Record<string, any[]> = {};
+  // Process up to 5 queries to stay within rate limits
+  for (const q of queries.slice(0, 5)) {
+    try {
+      const cves = await searchNVD(q);
+      if (cves.length > 0) results[q] = cves;
+      // Small delay to respect NVD rate limits (~5 req/30s without key)
+      await new Promise((r) => setTimeout(r, 6500));
+    } catch {
+      // Skip failed queries
+    }
+  }
+  return results;
+}
+
 export async function POST(request: Request) {
   try {
-    const { ip } = await request.json();
+    const { ip, skipCVE } = await request.json();
 
     if (!ip) {
       return NextResponse.json({ error: "IP is required" }, { status: 400 });
@@ -36,68 +83,73 @@ export async function POST(request: Request) {
     try {
       data = await tryShodanHost(sanitized);
     } catch (shodanErr: any) {
-      // If membership required or any Shodan error, try InternetDB (free)
       try {
         data = await tryInternetDB(sanitized);
         source = "internetdb";
       } catch {
         return NextResponse.json(
-          { error: shodanErr.message || "Shodan lookup failed. Try InternetDB or check the IP." },
+          { error: shodanErr.message || "Shodan lookup failed" },
           { status: 402 }
         );
       }
     }
 
-    // Normalize response from either source
+    let ports: number[];
+    let services: { port: number; protocol: string; product: string; version: string; banner: string }[];
+    let shodanVulns: string[];
+    let hostname: string;
+    let os: string | null;
+    let country: string | null;
+    let city: string | null;
+    let isp: string | null;
+    let org: string | null;
+
     if (source === "internetdb") {
-      return NextResponse.json({
-        ip: sanitized,
-        hostname: "",
-        os: null,
-        country: null,
-        city: null,
-        isp: null,
-        organization: null,
-        ports: data.ports || [],
-        services: (data.ports || []).map((p: number) => ({
-          port: p,
-          protocol: "tcp",
-          product: "",
-          version: "",
-          banner: "",
-        })),
-        vulnerabilities: [
-          ...(data.vulns || []),
-          ...(data.cpes || []),
-        ],
-        lastUpdate: null,
-        source: "internetdb",
-      });
+      ports = data.ports || [];
+      services = ports.map((p: number) => ({
+        port: p, protocol: "tcp", product: "", version: "", banner: "",
+      }));
+      shodanVulns = [...(data.vulns || []), ...(data.cpes || [])];
+      hostname = "";
+      os = null; country = null; city = null; isp = null; org = null;
+    } else {
+      ports = (data.ports || []).map((p: number) => p);
+      services = (data.data || []).map((s: any) => ({
+        port: s.port,
+        protocol: s.transport || "tcp",
+        product: s.product || "",
+        version: s.version || "",
+        banner: (s.data || "").slice(0, 200),
+      }));
+      shodanVulns = data.vulns || [];
+      hostname = data.hostnames?.[0] || "";
+      os = data.os?.name || null;
+      country = data.country_name || null;
+      city = data.city || null;
+      isp = data.isp || null;
+      org = data.org || null;
     }
 
-    // Full Shodan response
-    const ports = (data.ports || []).map((p: number) => p);
-    const services = (data.data || []).map((s: any) => ({
-      port: s.port,
-      protocol: s.transport || "tcp",
-      product: s.product || "",
-      version: s.version || "",
-      banner: (s.data || "").slice(0, 200),
-    }));
+    // Lookup CVEs from NVD based on discovered tech stack
+    let techCVEs: Record<string, any[]> = {};
+    if (!skipCVE && services.some((s) => s.product)) {
+      techCVEs = await lookupCVEsForServices(services);
+    }
 
     return NextResponse.json({
-      ip: data.ip_str,
-      hostname: data.hostnames?.[0] || "",
-      os: data.os?.name || null,
-      country: data.country_name || null,
-      city: data.city || null,
-      isp: data.isp || null,
-      organization: data.org || null,
+      ip: sanitized,
+      hostname,
+      os,
+      country,
+      city,
+      isp,
+      organization: org,
       ports,
       services,
-      vulnerabilities: data.vulns || [],
-      lastUpdate: data.last_update,
-      source: "shodan",
+      vulnerabilities: shodanVulns,
+      techCVEs,
+      lastUpdate: source === "shodan" ? data.last_update : null,
+      source,
     });
   } catch (error: any) {
     return NextResponse.json(

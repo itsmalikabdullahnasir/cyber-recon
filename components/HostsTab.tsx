@@ -8,6 +8,13 @@ import { StatusDot } from "@/components/StatusDot";
 import { LikelihoodBadge } from "@/components/LikelihoodBadge";
 import { createClient } from "@/lib/supabase/client";
 
+interface CVE {
+  id: string;
+  description: string;
+  cvss: number | null;
+  severity: string | null;
+}
+
 interface ShodanResult {
   ip: string;
   hostname: string;
@@ -19,6 +26,7 @@ interface ShodanResult {
   ports: number[];
   services: { port: number; protocol: string; product: string; version: string; banner: string }[];
   vulnerabilities: string[];
+  techCVEs: Record<string, CVE[]>;
 }
 
 export function HostsTab({
@@ -66,11 +74,17 @@ export function HostsTab({
       setServices(data.services?.map((s: { product: string; port: number }) => `${s.product || s.port}`).join(", ") || "");
       setOsGuess(data.os || "");
       setCheckedBy("shodan");
-      setExploitability(data.vulnerabilities?.length > 3 ? "High" : data.vulnerabilities?.length > 0 ? "Medium" : "Info");
+
+      const allCVEs: CVE[] = Object.values(data.techCVEs || {}).flat() as CVE[];
+      const highCVEs = allCVEs.filter((c) => c.cvss && c.cvss >= 7).length;
+      const totalCVEs = allCVEs.length + (data.vulnerabilities?.length || 0);
+      setExploitability(highCVEs > 3 ? "Critical" : highCVEs > 0 ? "High" : totalCVEs > 0 ? "Medium" : "Info");
+
       setNotes([
         data.hostname && `hostname: ${data.hostname}`,
         data.isp && `ISP: ${data.isp}`,
-        data.vulnerabilities?.length > 0 && `CVEs: ${data.vulnerabilities.join(", ")}`,
+        data.vulnerabilities?.length > 0 && `Shodan CVEs: ${data.vulnerabilities.join(", ")}`,
+        allCVEs.length > 0 && `Tech CVEs: ${allCVEs.map((c) => `${c.id}(${c.cvss || "?"})`).join(", ")}`,
       ].filter(Boolean).join("\n"));
     } catch {
       setError("Shodan API error");
@@ -195,20 +209,49 @@ export function HostsTab({
                 </div>
               )}
 
-              {/* Vulnerabilities */}
+              {/* Vulnerabilities from Shodan */}
               {shodanResult.vulnerabilities.length > 0 && (
                 <div>
-                  <p className="text-[9px] uppercase text-muted-dim mb-1.5">Vulnerabilities</p>
+                  <p className="text-[9px] uppercase text-muted-dim mb-1.5">Shodan CVEs</p>
                   <div className="flex flex-wrap gap-1">
                     {shodanResult.vulnerabilities.slice(0, 10).map((v, i) => (
-                      <span key={i} className="rounded-md border border-rose-500/20 bg-rose-500/10 px-1.5 py-0.5 font-mono text-[10px] text-rose-400">
-                        {v}
-                      </span>
+                      <a key={i} href={`https://nvd.nist.gov/vuln/detail/${v}`} target="_blank" rel="noopener noreferrer"
+                        className="rounded-md border border-rose-500/20 bg-rose-500/10 px-1.5 py-0.5 font-mono text-[10px] text-rose-400 hover:bg-rose-500/15">
+                        {v} ↗
+                      </a>
                     ))}
                     {shodanResult.vulnerabilities.length > 10 && (
                       <span className="px-1.5 py-0.5 text-[10px] text-muted-dim">+{shodanResult.vulnerabilities.length - 10} more</span>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* CVEs from tech stack */}
+              {shodanResult.techCVEs && Object.keys(shodanResult.techCVEs).length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-[9px] uppercase text-muted-dim">CVEs from tech stack</p>
+                  {Object.entries(shodanResult.techCVEs).map(([tech, cves]) => (
+                    <div key={tech} className="rounded-md border border-accent/10 bg-background/50 px-3 py-2">
+                      <p className="mb-1 text-[10px] font-semibold text-accent">{tech}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {cves.slice(0, 5).map((c) => (
+                          <a key={c.id} href={`https://nvd.nist.gov/vuln/detail/${c.id}`} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded border border-white/5 bg-surface px-1.5 py-0.5 text-[10px] hover:border-accent/20">
+                            <span className="font-mono text-accent">{c.id}</span>
+                            {c.cvss && (
+                              <span className={`font-bold ${
+                                c.cvss >= 9 ? "text-rose-400" :
+                                c.cvss >= 7 ? "text-pink-400" :
+                                c.cvss >= 4 ? "text-amber-400" :
+                                "text-emerald-400"
+                              }`}>{c.cvss}</span>
+                            )}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
