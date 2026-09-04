@@ -2,10 +2,6 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { ScopeBanner } from "@/components/ScopeBanner";
-import { LikelihoodBadge } from "@/components/LikelihoodBadge";
-import { StatusDot } from "@/components/StatusDot";
-import { HostsTab } from "@/components/HostsTab";
-import { FindingsTab } from "@/components/FindingsTab";
 import { TargetDetailClient } from "@/components/TargetDetailClient";
 
 export default async function TargetDetailPage({
@@ -16,7 +12,9 @@ export default async function TargetDetailPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const { data: target } = await supabase
@@ -31,7 +29,7 @@ export default async function TargetDetailPage({
     .from("hosts")
     .select("*")
     .eq("target_id", id)
-    .order("ip");
+    .order("created_at", { ascending: true });
 
   const { data: findings } = await supabase
     .from("findings")
@@ -42,14 +40,21 @@ export default async function TargetDetailPage({
   return (
     <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-6 px-4 py-8">
       <div>
-        <Link href="/" className="text-xs text-muted hover:text-foreground">
-          ← Back to dashboard
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1 text-xs text-muted hover:text-foreground"
+        >
+          <span>←</span> Back to dashboard
         </Link>
       </div>
 
       <ScopeBanner scope={target.scope} />
 
-      <TargetDetailClient target={target} hosts={hosts ?? []} findings={findings ?? []} />
+      <TargetDetailClient
+        target={target}
+        hosts={hosts ?? []}
+        findings={findings ?? []}
+      />
     </div>
   );
 }
