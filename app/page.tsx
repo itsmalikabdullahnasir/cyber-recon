@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { DashboardClient } from "@/components/DashboardClient";
 import { NotificationBell } from "@/components/NotificationBell";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -52,6 +53,7 @@ export default async function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <NotificationBell userEmail={user.email ?? ""} />
           <div className="hidden items-center gap-1.5 rounded-md border border-white/5 bg-surface px-2.5 py-1.5 text-xs text-muted sm:flex">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
