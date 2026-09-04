@@ -190,7 +190,8 @@ export function SslPanel({ defaultTarget }: { defaultTarget?: string }) {
     if (data) setResult(data);
   }
 
-  const cert = result?.sslCertificate || result;
+  // Handle various response formats
+  const cert = result?.sslCertificates?.[0] || result?.sslCertificate || result?.certificate || result;
 
   return (
     <Panel title="SSL Certificate" icon="🔒">
@@ -203,15 +204,20 @@ export function SslPanel({ defaultTarget }: { defaultTarget?: string }) {
       {error && <div className="rounded-lg border border-rose-500/20 bg-rose-500/8 px-3 py-2 text-xs text-rose-400">{error}</div>}
       {cert && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 animate-fade-in">
-          <Field label="Subject" value={cert.subjectCN || cert.subject} />
-          <Field label="Issuer" value={cert.issuerCN || cert.issuer} />
-          <Field label="Valid From" value={cert.validFrom || cert.notBefore} />
-          <Field label="Valid To" value={cert.validTo || cert.notAfter} />
+          <Field label="Subject CN" value={cert.subjectCN || cert.commonName || cert.subject} />
+          <Field label="Issuer" value={cert.issuerCN || cert.issuerOrganization || cert.issuer} />
+          <Field label="Valid From" value={cert.validFrom || cert.notBefore || cert.issuedOn} />
+          <Field label="Valid To" value={cert.validTo || cert.notAfter || cert.expiresOn} />
           <Field label="Serial" value={cert.serialNumber} />
-          <Field label="Key Size" value={cert.keySize} />
-          <Field label="SAN" value={cert.subjectAltName?.join(", ")} />
-          <Field label="Signature" value={cert.signatureAlgorithm} />
+          <Field label="Key Size" value={cert.keySize || cert.keySizeInBits} />
+          <Field label="SAN" value={cert.subjectAltName?.join?.(", ") || cert.san} />
+          <Field label="Signature Alg" value={cert.signatureAlgorithm || cert.signatureAlg} />
         </div>
+      )}
+      {cert && (
+        <pre className="max-h-32 overflow-auto rounded-lg bg-background p-2 font-mono text-[10px] text-muted-dim">
+          {JSON.stringify(cert, null, 2).slice(0, 500)}
+        </pre>
       )}
     </Panel>
   );
@@ -261,6 +267,8 @@ export function ReputationPanel({ defaultTarget }: { defaultTarget?: string }) {
     if (data) setResult(data);
   }
 
+  const rep = result?.domainReputation || result?.reputation || result;
+
   return (
     <Panel title="Domain Reputation" icon="🛡️">
       <div className="flex gap-2">
@@ -270,10 +278,32 @@ export function ReputationPanel({ defaultTarget }: { defaultTarget?: string }) {
         </button>
       </div>
       {error && <div className="rounded-lg border border-rose-500/20 bg-rose-500/8 px-3 py-2 text-xs text-rose-400">{error}</div>}
-      {result && (
+      {rep && (
         <div className="flex flex-col gap-3 animate-fade-in">
-          <pre className="max-h-64 overflow-auto rounded-lg bg-background p-3 font-mono text-[11px] text-muted">
-            {JSON.stringify(result, null, 2)}
+          {rep.score !== undefined && (
+            <div className={`rounded-lg px-4 py-3 text-center text-sm font-semibold ${
+              rep.score >= 80 ? "border border-emerald-500/20 bg-emerald-500/10 text-emerald-400" :
+              rep.score >= 50 ? "border border-amber-500/20 bg-amber-500/10 text-amber-400" :
+              "border border-rose-500/20 bg-rose-500/10 text-rose-400"
+            }`}>
+              Score: {rep.score}/100
+            </div>
+          )}
+          {rep.threatScore !== undefined && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-dim">Threat Score:</span>
+              <span className="font-mono text-sm font-medium">{rep.threatScore}</span>
+            </div>
+          )}
+          {rep.categories && (
+            <div className="flex flex-wrap gap-1">
+              {rep.categories.map((c: string, i: number) => (
+                <span key={i} className="rounded-md border border-white/5 bg-surface px-2 py-0.5 text-[11px]">{c}</span>
+              ))}
+            </div>
+          )}
+          <pre className="max-h-48 overflow-auto rounded-lg bg-background p-3 font-mono text-[11px] text-muted">
+            {JSON.stringify(rep, null, 2)}
           </pre>
         </div>
       )}

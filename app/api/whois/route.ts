@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 
 const API_KEY = "at_KrGgtnDLCPkm2uhg7niUNY2iCv9Sk";
-const BASE = "https://www.whoisxmlapi.com";
 
-async function get(path: string) {
-  const sep = path.includes("?") ? "&" : "?";
-  const res = await fetch(`${BASE}${path}${sep}apiKey=${API_KEY}&outputFormat=json`);
-  if (!res.ok) throw new Error(`API returned ${res.status}`);
-  return res.json();
+async function fetchJSON(url: string) {
+  const res = await fetch(url);
+  const text = await res.text();
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { msg = JSON.parse(text).message || JSON.parse(text).error || msg; } catch {}
+    throw new Error(msg);
+  }
+  try { return JSON.parse(text); } catch { return { raw: text }; }
 }
 
 export async function POST(request: Request) {
@@ -21,60 +24,95 @@ export async function POST(request: Request) {
 
     switch (service) {
       case "whois": {
-        data = await get(`/whoisserver/WhoisService?domainName=${target}`);
+        data = await fetchJSON(
+          `https://www.whoisxmlapi.com/whoisserver/WhoisService?domainName=${target}&apiKey=${API_KEY}&outputFormat=json`
+        );
         break;
       }
       case "dns": {
-        data = await get(`/dnsapi/info/${target}`);
+        data = await fetchJSON(
+          `https://www.whoisxmlapi.com/dnsapi/info/${target}?apiKey=${API_KEY}&outputFormat=json`
+        );
         break;
       }
       case "geo": {
-        data = await get(`/ip-geolocation-api/json/${target}`);
+        data = await fetchJSON(
+          `https://www.whoisxmlapi.com/ip-geolocation-api/json/${target}?apiKey=${API_KEY}&outputFormat=json`
+        );
         break;
       }
       case "screenshot": {
-        const sRes = await fetch(`https://screenshotapi.net/api/v1/screenshot?token=${API_KEY}&url=${target}&full_page=false&output=json&file_format=json&wait_for_event=load`);
-        data = await sRes.json();
+        data = await fetchJSON(
+          `https://screenshotapi.net/api/v1/screenshot?token=${API_KEY}&url=${target}&full_page=false&output=json&file_format=json&wait_for_event=load`
+        );
         break;
       }
       case "ssl": {
-        data = await get(`/ssl-certificate-api/api/v4/?domain=${target}`);
+        // Try v3 first (more widely available), fallback to v4
+        try {
+          data = await fetchJSON(
+            `https://www.whoisxmlapi.com/ssl-certificate-api/api/analyze?domain=${target}&apiKey=${API_KEY}&outputFormat=json`
+          );
+        } catch {
+          data = await fetchJSON(
+            `https://ssl-certificate.whoisxmlapi.com/api/v4/?domain=${target}&apiKey=${API_KEY}&outputFormat=json`
+          );
+        }
         break;
       }
       case "reputation": {
-        data = await get(`/domain-reputation-api/api/v2/?domainName=${target}`);
+        // Try with different parameter names
+        try {
+          data = await fetchJSON(
+            `https://www.whoisxmlapi.com/domainReputationApi/api/v2?domainName=${target}&apiKey=${API_KEY}&outputFormat=json`
+          );
+        } catch {
+          data = await fetchJSON(
+            `https://domain-reputation.whoisxmlapi.com/api/v2/?domainName=${target}&apiKey=${API_KEY}&outputFormat=json`
+          );
+        }
         break;
       }
       case "categorization": {
-        data = await get(`/website-categorization-api/api/v3/?url=${target}`);
+        data = await fetchJSON(
+          `https://www.whoisxmlapi.com/websiteCategorizationApi/api/v3/?url=${target}&apiKey=${API_KEY}&outputFormat=json`
+        );
         break;
       }
       case "availability": {
-        data = await get(`/domain-availability-api/api/?domainName=${target}`);
+        data = await fetchJSON(
+          `https://www.whoisxmlapi.com/domain-availability-api/api/?domainName=${target}&apiKey=${API_KEY}&outputFormat=json`
+        );
         break;
       }
       case "threat": {
-        data = await get(`/threat-intelligence-api/api/v2/?ip=${target}`);
+        data = await fetchJSON(
+          `https://www.whoisxmlapi.com/threat-intelligence-api/api/v2/?ip=${target}&apiKey=${API_KEY}&outputFormat=json`
+        );
         break;
       }
       case "vpn": {
-        const vRes = await fetch(`https://vpn-detection.whoisxmlapi.com/api/?apiKey=${API_KEY}&ip=${target}&outputFormat=json`);
-        data = await vRes.json();
+        data = await fetchJSON(
+          `https://vpn-detection.whoisxmlapi.com/api/?apiKey=${API_KEY}&ip=${target}&outputFormat=json`
+        );
         break;
       }
       case "netblocks": {
-        const nRes = await fetch(`https://ipnetblocks.whoisxmlapi.com/api/?apiKey=${API_KEY}&ip=${target}&outputFormat=json`);
-        data = await nRes.json();
+        data = await fetchJSON(
+          `https://ipnetblocks.whoisxmlapi.com/api/?apiKey=${API_KEY}&ip=${target}&outputFormat=json`
+        );
         break;
       }
       case "email": {
-        const eRes = await fetch(`https://emailverification.whoisxmlapi.com/api/v3/?apiKey=${API_KEY}&email=${target}`);
-        data = await eRes.json();
+        data = await fetchJSON(
+          `https://emailverification.whoisxmlapi.com/api/v3/?apiKey=${API_KEY}&email=${target}&outputFormat=json`
+        );
         break;
       }
       case "research": {
-        const rRes = await fetch(`https://api.domainsrsapi.com/v2/?apiKey=${API_KEY}&domain=${target}&type=live`);
-        data = await rRes.json();
+        data = await fetchJSON(
+          `https://api.domainsrsapi.com/v2/?apiKey=${API_KEY}&domain=${target}&type=live&outputFormat=json`
+        );
         break;
       }
       default:
