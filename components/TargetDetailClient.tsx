@@ -8,10 +8,10 @@ import { HostsTab } from "@/components/HostsTab";
 import { FindingsTab } from "@/components/FindingsTab";
 import { NotesTab } from "@/components/NotesTab";
 import { SubdomainsTab } from "@/components/SubdomainsTab";
-import { NmapPanel } from "@/components/NmapPanel";
+import { ShodanPanel } from "@/components/ShodanPanel";
 import { CVSSCalculator } from "@/components/CVSSCalculator";
 
-type Tab = "hosts" | "findings" | "notes" | "overview" | "subdomains" | "nmap" | "cvss";
+type Tab = "hosts" | "findings" | "notes" | "overview" | "subdomains" | "shodan" | "cvss";
 
 export function TargetDetailClient({
   target, hosts, findings, subdomains,
@@ -25,7 +25,7 @@ export function TargetDetailClient({
     { id: "subdomains", label: "Subdomains", icon: "🌐", count: subdomains.length },
     { id: "hosts", label: "Hosts", icon: "🖥️", count: hosts.length },
     { id: "findings", label: "Findings", icon: "🐛", count: findings.length },
-    { id: "nmap", label: "Nmap", icon: "🔍" },
+    { id: "shodan", label: "Shodan", icon: "🔍" },
     { id: "cvss", label: "CVSS", icon: "📐" },
     { id: "notes", label: "Notes", icon: "📝" },
   ];
@@ -159,7 +159,7 @@ export function TargetDetailClient({
       {tab === "subdomains" && <SubdomainsTab targetId={target.id} subdomains={subdomains} />}
       {tab === "hosts" && <HostsTab targetId={target.id} hosts={hosts} />}
       {tab === "findings" && <FindingsTab targetId={target.id} hosts={hosts} findings={findings} />}
-      {tab === "nmap" && <NmapPanel targetId={target.id} targetName={target.name} />}
+      {tab === "shodan" && <ShodanPanel targetId={target.id} targetName={target.name} />}
       {tab === "cvss" && <CVSSCalculator />}
       {tab === "notes" && <NotesTab target={target} />}
     </div>
