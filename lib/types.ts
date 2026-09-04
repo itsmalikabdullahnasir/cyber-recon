@@ -74,6 +74,28 @@ export interface Activity {
   created_at: string;
 }
 
+export interface Subdomain {
+  id: string;
+  target_id: string;
+  name: string;
+  ip: string | null;
+  status: "Active" | "Inactive" | "Unknown";
+  ports: string | null;
+  services: string | null;
+  discovered_by: string | null;
+  created_at: string;
+}
+
+export interface Notification {
+  id: string;
+  user_email: string | null;
+  title: string;
+  message: string;
+  read: boolean;
+  target_id: string | null;
+  created_at: string;
+}
+
 export const LIKELIHOOD_ORDER: Record<Likelihood, number> = {
   Info: 0,
   Low: 1,

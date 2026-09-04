@@ -37,14 +37,20 @@ export default async function TargetDetailPage({
     .eq("target_id", id)
     .order("created_at", { ascending: false });
 
+  const { data: subdomains } = await supabase
+    .from("subdomains")
+    .select("*")
+    .eq("target_id", id)
+    .order("created_at", { ascending: false });
+
   return (
-    <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-6 px-4 py-8">
+    <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 py-6 sm:px-6">
       <div>
         <Link
           href="/"
           className="inline-flex items-center gap-1 text-xs text-muted hover:text-foreground"
         >
-          <span>←</span> Back to dashboard
+          ← Back to dashboard
         </Link>
       </div>
 
@@ -54,6 +60,7 @@ export default async function TargetDetailPage({
         target={target}
         hosts={hosts ?? []}
         findings={findings ?? []}
+        subdomains={subdomains ?? []}
       />
     </div>
   );

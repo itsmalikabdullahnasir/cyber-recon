@@ -1,26 +1,32 @@
 "use client";
 
 import { useState } from "react";
-import type { Target, Host, Finding } from "@/lib/types";
+import type { Target, Host, Finding, Subdomain } from "@/lib/types";
 import { STATUS_COLORS, CATEGORY_ICONS, LIKELIHOOD_ORDER } from "@/lib/types";
 import { LikelihoodBadge } from "@/components/LikelihoodBadge";
 import { HostsTab } from "@/components/HostsTab";
 import { FindingsTab } from "@/components/FindingsTab";
 import { NotesTab } from "@/components/NotesTab";
+import { SubdomainsTab } from "@/components/SubdomainsTab";
+import { NmapPanel } from "@/components/NmapPanel";
+import { CVSSCalculator } from "@/components/CVSSCalculator";
 
-type Tab = "hosts" | "findings" | "notes" | "overview";
+type Tab = "hosts" | "findings" | "notes" | "overview" | "subdomains" | "nmap" | "cvss";
 
 export function TargetDetailClient({
-  target, hosts, findings,
+  target, hosts, findings, subdomains,
 }: {
-  target: Target; hosts: Host[]; findings: Finding[];
+  target: Target; hosts: Host[]; findings: Finding[]; subdomains: Subdomain[];
 }) {
   const [tab, setTab] = useState<Tab>("overview");
 
   const tabs: { id: Tab; label: string; icon: string; count?: number }[] = [
     { id: "overview", label: "Overview", icon: "📊" },
+    { id: "subdomains", label: "Subdomains", icon: "🌐", count: subdomains.length },
     { id: "hosts", label: "Hosts", icon: "🖥️", count: hosts.length },
     { id: "findings", label: "Findings", icon: "🐛", count: findings.length },
+    { id: "nmap", label: "Nmap", icon: "🔍" },
+    { id: "cvss", label: "CVSS", icon: "📐" },
     { id: "notes", label: "Notes", icon: "📝" },
   ];
 
@@ -88,8 +94,7 @@ export function TargetDetailClient({
                     "bg-white/5"
                   }`} />
                   <span className={`text-[9px] leading-tight text-center ${
-                    isCurrent ? "font-semibold text-accent" :
-                    isPast ? "text-muted" : "text-muted-dim/60"
+                    isCurrent ? "font-semibold text-accent" : isPast ? "text-muted" : "text-muted-dim/60"
                   }`}>{stage}</span>
                 </div>
               );
@@ -98,12 +103,12 @@ export function TargetDetailClient({
         </div>
       </div>
 
-      <div className="flex gap-1 border-b border-white/5">
+      <div className="flex gap-1 overflow-x-auto border-b border-white/5">
         {tabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-all duration-200 ${
+          <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-xs font-medium transition-all whitespace-nowrap ${
             tab === t.id ? "border-accent text-foreground" : "border-transparent text-muted-dim hover:text-foreground"
           }`}>
-            <span className="text-xs">{t.icon}</span>
+            <span>{t.icon}</span>
             {t.label}
             {t.count !== undefined && t.count > 0 && (
               <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium leading-none ${
@@ -115,11 +120,15 @@ export function TargetDetailClient({
       </div>
 
       {tab === "overview" && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <div className="rounded-xl border border-white/5 bg-surface p-4 transition-all hover:border-white/8">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Subdomains</p>
+            <p className="mt-2 text-3xl font-bold">{subdomains.length}</p>
+          </div>
           <div className="rounded-xl border border-white/5 bg-surface p-4 transition-all hover:border-white/8">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Hosts</p>
             <p className="mt-2 text-3xl font-bold">{hosts.length}</p>
-            <p className="mt-1 text-[10px] text-muted-dim">{liveHosts} live, {hosts.length - liveHosts} down</p>
+            <p className="mt-1 text-[10px] text-muted-dim">{liveHosts} live</p>
           </div>
           <div className="rounded-xl border border-white/5 bg-surface p-4 transition-all hover:border-white/8">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Findings</p>
@@ -147,8 +156,11 @@ export function TargetDetailClient({
         </div>
       )}
 
+      {tab === "subdomains" && <SubdomainsTab targetId={target.id} subdomains={subdomains} />}
       {tab === "hosts" && <HostsTab targetId={target.id} hosts={hosts} />}
       {tab === "findings" && <FindingsTab targetId={target.id} hosts={hosts} findings={findings} />}
+      {tab === "nmap" && <NmapPanel targetId={target.id} targetName={target.name} />}
+      {tab === "cvss" && <CVSSCalculator />}
       {tab === "notes" && <NotesTab target={target} />}
     </div>
   );
