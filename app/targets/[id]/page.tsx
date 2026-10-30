@@ -43,6 +43,19 @@ export default async function TargetDetailPage({
     .eq("target_id", id)
     .order("created_at", { ascending: false });
 
+  const { data: scopeEntries } = await supabase
+    .from("scope_entries")
+    .select("*")
+    .eq("target_id", id)
+    .order("created_at", { ascending: true });
+
+  const { data: scans } = await supabase
+    .from("scans")
+    .select("*")
+    .eq("target_id", id)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
   return (
     <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 py-6 sm:px-6">
       <div>
@@ -61,6 +74,8 @@ export default async function TargetDetailPage({
         hosts={hosts ?? []}
         findings={findings ?? []}
         subdomains={subdomains ?? []}
+        scopeEntries={scopeEntries ?? []}
+        scans={scans ?? []}
       />
     </div>
   );

@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import type { Target, Host, Finding, Subdomain } from "@/lib/types";
+import type { Target, Host, Finding, Subdomain, ScopeEntry, Scan } from "@/lib/types";
+import { ScopeManager } from "@/components/ScopeManager";
+import { ScanLauncher } from "@/components/ScanLauncher";
+import { ReconResults } from "@/components/ReconResults";
 import { STATUS_COLORS, CATEGORY_ICONS, LIKELIHOOD_ORDER } from "@/lib/types";
 import { LikelihoodBadge } from "@/components/LikelihoodBadge";
 import { HostsTab } from "@/components/HostsTab";
@@ -23,17 +26,19 @@ import {
   BgpPanel, CdnPanel, NetblocksPanel, HistoryPanel,
 } from "@/components/InfraLookup";
 
-type Tab = "hosts" | "findings" | "notes" | "overview" | "subdomains" | "shodan" | "cvss" | "recon" | "security" | "infra";
+type Tab = "hosts" | "findings" | "notes" | "overview" | "subdomains" | "shodan" | "cvss" | "recon" | "security" | "infra" | "vm";
 
 export function TargetDetailClient({
-  target, hosts, findings, subdomains,
+  target, hosts, findings, subdomains, scopeEntries, scans,
 }: {
   target: Target; hosts: Host[]; findings: Finding[]; subdomains: Subdomain[];
+  scopeEntries: ScopeEntry[]; scans: Scan[];
 }) {
   const [tab, setTab] = useState<Tab>("overview");
 
   const tabs: { id: Tab; label: string; icon: string; count?: number }[] = [
     { id: "overview", label: "Overview", icon: "📊" },
+    { id: "vm", label: "Recon VM", icon: "🛰️" },
     { id: "subdomains", label: "Subdomains", icon: "🌐", count: subdomains.length },
     { id: "hosts", label: "Hosts", icon: "🖥️", count: hosts.length },
     { id: "findings", label: "Findings", icon: "🐛", count: findings.length },
@@ -168,6 +173,27 @@ export function TargetDetailClient({
               <p className="mt-2 text-sm leading-relaxed">{target.description}</p>
             </div>
           )}
+        </div>
+      )}
+
+      {tab === "vm" && (
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-muted-dim">
+            Automated recon on your Oracle VM — subdomains, DNS, HTTP probe, port scan, CVE match and vuln templates.
+            Active stages run only against authorized scope.
+          </p>
+          <ScopeManager targetId={target.id} entries={scopeEntries} />
+          <ScanLauncher
+            targetId={target.id}
+            domain={target.domain}
+            inScope={target.scope === "In Scope"}
+            scopeEntries={scopeEntries}
+            initialScans={scans}
+          />
+          <div>
+            <h3 className="mb-2 text-sm font-semibold">Results</h3>
+            <ReconResults subdomains={subdomains} hosts={hosts} findings={findings} />
+          </div>
         </div>
       )}
 

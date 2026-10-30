@@ -1,0 +1,36 @@
+# /etc/caddy/Caddyfile
+# Replace the hostname with your own DNS name if you have one. sslip.io resolves
+# 145-241-119-168.sslip.io -> 145.241.119.168, so Caddy can get a real Let's Encrypt
+# cert. Only port 443 is needed: Caddy uses the TLS-ALPN challenge.
+{
+	email you@example.com
+}
+
+145-241-119-168.sslip.io {
+	# If you have fixed egress IPs (Vercel Static IPs / Secure Compute), allow only them:
+	# @blocked not remote_ip 198.51.100.10 198.51.100.11
+	# respond @blocked 403
+
+	request_body {
+		max_size 8KB
+	}
+
+	@api {
+		method POST
+		path /scan
+	}
+	handle @api {
+		reverse_proxy 127.0.0.1:8000
+	}
+	handle /health {
+		reverse_proxy 127.0.0.1:8000
+	}
+	handle {
+		respond 404
+	}
+
+	header -Server
+	log {
+		output file /var/log/caddy/recon-worker.log
+	}
+}

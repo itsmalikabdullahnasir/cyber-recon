@@ -43,6 +43,13 @@ export interface Host {
   hostname: string | null;
   http_title: string | null;
   ssl_info: string | null;
+  // Added by the recon worker (all nullable).
+  scan_id: string | null;
+  is_cdn: boolean | null;
+  cdn_name: string | null;
+  asn: string | null;
+  tech: string[] | null;
+  ports: PortInfo[] | null;
 }
 
 export interface Finding {
@@ -62,6 +69,12 @@ export interface Finding {
   affected_url: string | null;
   fix_priority: Priority;
   tags: string[] | null;
+  // Added by the recon worker (all nullable).
+  scan_id: string | null;
+  subdomain_id: string | null;
+  cve_id: string | null;
+  source: string | null;
+  fingerprint: string | null;
 }
 
 export interface Activity {
@@ -84,6 +97,56 @@ export interface Subdomain {
   services: string | null;
   discovered_by: string | null;
   created_at: string;
+  // Added by the recon worker (all nullable).
+  scan_id: string | null;
+  resolved_ips: string[] | null;
+  is_cdn: boolean | null;
+  cdn_name: string | null;
+  url: string | null;
+  http_status: number | null;
+  http_title: string | null;
+  webserver: string | null;
+  tech: string[] | null;
+  asn: string | null;
+  last_seen: string | null;
+}
+
+export interface PortInfo {
+  port: number;
+  protocol: string;
+  service: string | null;
+  product: string | null;
+  version: string | null;
+  extrainfo: string | null;
+  cpe: string[];
+}
+
+export type ScopeKind = "domain" | "wildcard" | "ip" | "cidr";
+
+export interface ScopeEntry {
+  id: string;
+  target_id: string;
+  kind: ScopeKind;
+  value: string;
+  note: string | null;
+  created_at: string;
+}
+
+export type ScanStatus = "queued" | "running" | "done" | "failed";
+
+export interface Scan {
+  id: string;
+  target_id: string;
+  input: string;
+  mode: "passive" | "full";
+  status: ScanStatus;
+  stage: string | null;
+  stages: Record<string, { status: string; at: string; [k: string]: unknown }>;
+  error: string | null;
+  requested_by_email: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
 }
 
 export interface Notification {
