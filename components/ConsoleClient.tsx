@@ -34,6 +34,7 @@ export function ConsoleClient({
   const [input, setInput] = useState("");
   const [bulk, setBulk] = useState(false);
   const [mode, setMode] = useState<Mode>("passive");
+  const [authorized, setAuthorized] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -148,7 +149,7 @@ export function ConsoleClient({
       const res = await fetch("/api/console", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, targets: parsed, group_id: target }),
+        body: JSON.stringify({ mode, targets: parsed, group_id: target, authorize: authorized }),
       });
       const data = await res.json();
       if (res.status === 503 || res.status === 401) {
@@ -284,7 +285,11 @@ export function ConsoleClient({
             <button onClick={() => setMode("passive")} className="seg-item" data-active={mode === "passive"}>Passive</button>
             <button onClick={() => setMode("full")} className="seg-item" data-active={mode === "full"}>Full (active)</button>
           </div>
-          <button onClick={launch} disabled={busy || parsed.length === 0} className="btn btn-accent">
+          <button
+            onClick={launch}
+            disabled={busy || parsed.length === 0 || (mode === "full" && !authorized)}
+            className="btn btn-accent"
+          >
             {busy ? "Working…" : `Run ${parsed.length || ""} scan${parsed.length === 1 ? "" : "s"}`}
           </button>
           {importable && (
@@ -306,6 +311,22 @@ export function ConsoleClient({
           {mode === "full" && <span className="text-rose-400/80">→ nmap → testssl → dir brute → nuclei</span>}
         </div>
 
+        {mode === "full" && (
+          <label className="mt-3 flex items-start gap-2 rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-[11px] text-rose-200">
+            <input
+              type="checkbox"
+              checked={authorized}
+              onChange={(e) => setAuthorized(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="font-semibold">I&apos;m authorized to actively test the targets I enter.</span>{" "}
+              Full scans run real attacks (nmap, directory brute-force, nuclei). Tick this and it scans exactly what you type —
+              no allowlist setup needed. Only scan systems you have permission to test.
+            </span>
+          </label>
+        )}
+
         {notice && (
           <div className={`mt-2 flex flex-col gap-0.5 rounded-lg border px-3 py-2 text-[11px] ${notice.kind === "ok" ? "border-emerald-500/20 bg-emerald-500/8 text-emerald-300" : "border-rose-500/20 bg-rose-500/8 text-rose-300"}`}>
             {notice.text.split(" · ").map((line, i) => <span key={i}>{line}</span>)}
@@ -313,7 +334,15 @@ export function ConsoleClient({
         )}
       </div>
 
-      <ScopeManager key={groupId} targetId={groupId} entries={scopeEntries} />
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] text-muted-dim hover:text-foreground">
+          <span className="transition-transform group-open:rotate-90">▸</span>
+          Authorized scope (optional — auto-filled when you tick “I’m authorized”)
+        </summary>
+        <div className="mt-2">
+          <ScopeManager key={groupId} targetId={groupId} entries={scopeEntries} />
+        </div>
+      </details>
 
       {/* Live scans */}
       <div>

@@ -26,13 +26,14 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  let body: { targets?: unknown; mode?: Mode; group_id?: string };
+  let body: { targets?: unknown; mode?: Mode; group_id?: string; authorize?: boolean };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
   const mode: Mode = body.mode === "full" ? "full" : "passive";
+  const authorize = body.authorize === true;
 
   // Accept: ["a","b"] or [{target,mode}] or a single string.
   const rawList = normalizeTargets(body.targets);
@@ -58,6 +59,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Could not resolve the target group" }, { status: 500 });
   }
 
+  // When authorizing active scans, make sure the group is In Scope so the
+  // worker's gate passes (new/console groups already are).
+  if (authorize) {
+    await supabase.from("targets").update({ scope: "In Scope" }).eq("id", consoleTargetId);
+  }
+
   // Allowlist (scope_entries of the destination group) — only needed for active scans.
   let entries: ScopeEntry[] = [];
   if (rawList.some((r) => (r.mode ?? mode) === "full")) {
@@ -77,13 +84,26 @@ export async function POST(request: Request) {
       results.push({ target: item.target, status: "invalid", error: "not a valid domain or public IP" });
       continue;
     }
-    if (itemMode === "full" && !inScope(parsed, entries)) {
-      results.push({
-        target: parsed.value,
-        status: "refused",
-        error: "not on the active-scan allowlist",
-      });
-      continue;
+    if (itemMode === "full") {
+      if (authorize) {
+        // User confirmed they're authorized: auto-allow exactly what they typed.
+        await supabase.from("scope_entries").upsert(
+          {
+            target_id: consoleTargetId,
+            kind: parsed.kind === "ip" ? "ip" : "domain",
+            value: parsed.value,
+            note: "auto-authorized from console",
+          },
+          { onConflict: "target_id,kind,value", ignoreDuplicates: true },
+        );
+      } else if (!inScope(parsed, entries)) {
+        results.push({
+          target: parsed.value,
+          status: "refused",
+          error: "tick 'I'm authorized' to run an active scan on this",
+        });
+        continue;
+      }
     }
 
     const { data: scan, error: scanErr } = await supabase
