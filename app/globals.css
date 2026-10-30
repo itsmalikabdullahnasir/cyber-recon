@@ -99,3 +99,69 @@ body {
 .light textarea::placeholder {
   color: #9590ad;
 }
+
+/* ---- Redesign utilities ------------------------------------------------ */
+
+/* Frosted card with a soft top highlight. */
+.card {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface) 92%, white 8%), var(--color-surface));
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+}
+.card-hover { transition: border-color .2s ease, transform .2s ease, box-shadow .2s ease; }
+.card-hover:hover {
+  border-color: var(--color-border-strong);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 40px -12px var(--color-accent-glow);
+}
+
+/* Accent gradient text for headings / big numbers. */
+.gradient-text {
+  background: linear-gradient(120deg, var(--color-accent), var(--color-fuchsia), var(--color-pink));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Subtle animated grid used behind hero sections. */
+.grid-bg {
+  background-image:
+    linear-gradient(var(--color-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-border) 1px, transparent 1px);
+  background-size: 34px 34px;
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, #000 40%, transparent 100%);
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, #000 40%, transparent 100%);
+}
+
+/* Live status dot with a pulsing halo. */
+.pulse-dot { position: relative; }
+.pulse-dot::after {
+  content: ""; position: absolute; inset: -4px; border-radius: 9999px;
+  background: currentColor; opacity: .35; animation: pulse-ring 1.6s ease-out infinite;
+}
+@keyframes pulse-ring {
+  0% { transform: scale(.6); opacity: .5; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+/* Shimmer for skeleton / loading affordances. */
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+.shimmer { position: relative; overflow: hidden; }
+.shimmer::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent);
+  transform: translateX(-100%); animation: shimmer 1.4s infinite;
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.animate-slide-in { animation: slide-in .3s ease-out; }
+
+@keyframes count-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+.animate-count { animation: count-pop .4s ease-out; }

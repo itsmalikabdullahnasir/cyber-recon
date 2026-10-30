@@ -74,14 +74,15 @@ class Pipeline:
     def run(self) -> None:
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.db.update("scans", {"id": f"eq.{self.scan_id}"}, {"status": "running", "started_at": now_iso()})
-        self.db.notify(self.email, "Recon scan started", f"{self.mode} scan of {self.scan['input']}", self.target_id)
+        self.db.notify(self.email, f"🛰️ Scan started — {self.scan['input']}",
+                       f"{self.mode} scan running on the recon VM", self.target_id)
         try:
             self._run()
         except Exception as e:
             log.exception("scan %s failed", self.scan_id)
             self.db.update("scans", {"id": f"eq.{self.scan_id}"},
                            {"status": "failed", "error": str(e)[:1000], "finished_at": now_iso(), "stages": self.stages})
-            self.db.notify(self.email, "Recon scan failed", f"{self.scan['input']}: {str(e)[:300]}", self.target_id)
+            self.db.notify(self.email, f"❌ Scan failed — {self.scan['input']}", str(e)[:300], self.target_id)
             self.db.activity(self.target_id, "Recon scan failed", f"{self.scan['input']}: {str(e)[:300]}")
             return
 
@@ -90,7 +91,7 @@ class Pipeline:
                    f"{self.findings_new} new findings")
         self.db.update("scans", {"id": f"eq.{self.scan_id}"},
                        {"status": "done", "stage": "done", "finished_at": now_iso(), "stages": self.stages})
-        self.db.notify(self.email, "Recon scan finished", summary, self.target_id)
+        self.db.notify(self.email, f"✅ Scan complete — {self.scan['input']}", summary, self.target_id)
         self.db.activity(self.target_id, f"Recon scan ({self.mode}) finished", summary)
 
     def _run(self) -> None:

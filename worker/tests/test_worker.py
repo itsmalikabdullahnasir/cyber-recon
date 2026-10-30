@@ -299,7 +299,8 @@ def test_full_pipeline_respects_scope_and_cdn(fake_tools):
     cves = {f["cve_id"] for f in db.tables["findings"] if f["source"] == "cve-local"}
     assert cves == {"CVE-2021-23017", "CVE-2020-15778"}
     assert any(f["source"] == "nuclei" for f in db.tables["findings"])
-    assert [n["title"] for n in db.tables["notifications"]] == ["Recon scan started", "Recon scan finished"]
+    titles = [n["title"] for n in db.tables["notifications"]]
+    assert titles == ["🛰️ Scan started — example.com", "✅ Scan complete — example.com"]
 
     # New tool stages. whatweb/wafw00f are passive (run on all 4 probed hosts),
     # while testssl/feroxbuster are active and only hit the 3 in-scope hosts.

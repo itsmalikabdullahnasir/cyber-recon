@@ -199,9 +199,26 @@ export function ConsoleClient({
 
       {/* Live scans */}
       <div>
-        <h2 className="mb-2 text-sm font-semibold">
-          Scan activity {scans.length > 0 && <span className="text-muted-dim">({scans.length})</span>}
-        </h2>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">
+            Scan activity {scans.length > 0 && <span className="text-muted-dim">({scans.length})</span>}
+          </h2>
+          <div className="flex gap-1.5 text-[10px]">
+            {([
+              ["running", "Running", "border-amber-500/30 bg-amber-500/10 text-amber-300"],
+              ["queued", "Queued", "border-indigo-500/30 bg-indigo-500/10 text-indigo-300"],
+              ["done", "Done", "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"],
+              ["failed", "Failed", "border-rose-500/30 bg-rose-500/10 text-rose-300"],
+            ] as const).map(([key, label, cls]) => {
+              const count = scans.filter((s) => s.status === key).length;
+              return (
+                <span key={key} className={`rounded-md border px-2 py-0.5 font-medium ${cls}`}>
+                  {count} {label}
+                </span>
+              );
+            })}
+          </div>
+        </div>
         {scans.length === 0 ? (
           <p className="rounded-xl border border-white/5 bg-surface p-4 text-center text-xs text-muted-dim">
             No scans yet.

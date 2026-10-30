@@ -32,11 +32,11 @@ export default async function DashboardPage() {
     .order("created_at", { ascending: false })
     .limit(20);
 
-  const { data: notifications } = await supabase
-    .from("notifications")
+  const { data: scans } = await supabase
+    .from("scans")
     .select("*")
-    .eq("user_email", user.email ?? "")
-    .eq("read", false);
+    .order("created_at", { ascending: false })
+    .limit(40);
 
   async function signOut() {
     "use server";
@@ -83,6 +83,7 @@ export default async function DashboardPage() {
         hosts={hosts ?? []}
         findings={findings ?? []}
         activities={activities ?? []}
+        scans={scans ?? []}
         userName={user.email ?? "operator"}
       />
     </div>

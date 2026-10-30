@@ -1,51 +1,86 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
-import type { Target, Host, Finding, Activity } from "@/lib/types";
-import { LIKELIHOOD_ORDER, STATUS_COLORS, CATEGORY_ICONS } from "@/lib/types";
+import type { Target, Host, Finding, Activity, Scan } from "@/lib/types";
 import { TargetCard } from "@/components/TargetCard";
 import { SearchBar } from "@/components/SearchBar";
 import { FilterChips } from "@/components/FilterChips";
-import { StatCard } from "@/components/StatCard";
 import { RiskScoreGauge } from "@/components/RiskScoreGauge";
-import { BarChart } from "@/components/BarChart";
+import { Donut, AreaChart, BarList } from "@/components/charts";
+import { ScanRow } from "@/components/ScanRow";
+import { createClient } from "@/lib/supabase/client";
+
+const SEVERITY_COLORS: Record<string, string> = {
+  Critical: "#f43f5e",
+  High: "#ec4899",
+  Medium: "#f59e0b",
+  Low: "#a855f7",
+  Info: "#5c5775",
+};
 
 export function DashboardClient({
   targets,
   hosts,
-  findings,
+  findings: findingsInit,
   activities,
+  scans: scansInit,
   userName,
 }: {
   targets: Target[];
   hosts: Host[];
   findings: Finding[];
   activities: Activity[];
+  scans: Scan[];
   userName: string;
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
+  const [findings, setFindings] = useState<Finding[]>(findingsInit);
+  const [scans, setScans] = useState<Scan[]>(scansInit);
+  const [toasts, setToasts] = useState<{ id: string; text: string; kind: "ok" | "err" }[]>([]);
+  const scanStatus = useRef<Map<string, string>>(new Map(scansInit.map((s) => [s.id, s.status])));
 
-  const hostsByTarget = useMemo(() => {
-    const map = new Map<string, Host[]>();
-    for (const h of hosts) {
-      const list = map.get(h.target_id) ?? [];
-      list.push(h);
-      map.set(h.target_id, list);
-    }
-    return map;
-  }, [hosts]);
+  function pushToast(kind: "ok" | "err", text: string) {
+    const id = Math.random().toString(36).slice(2);
+    setToasts((t) => [...t, { id, text, kind }].slice(-4));
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
+  }
 
-  const findingsByTarget = useMemo(() => {
-    const map = new Map<string, Finding[]>();
-    for (const f of findings) {
-      const list = map.get(f.target_id) ?? [];
-      list.push(f);
-      map.set(f.target_id, list);
-    }
-    return map;
-  }, [findings]);
+  // Live: scans + findings stream in while you watch.
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel("dashboard-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "scans" }, (payload) => {
+        const row = payload.new as Scan;
+        if (!row?.id) return;
+        const prevStatus = scanStatus.current.get(row.id);
+        if (prevStatus !== row.status && (row.status === "done" || row.status === "failed")) {
+          pushToast(
+            row.status === "done" ? "ok" : "err",
+            row.status === "done" ? `✅ ${row.input} — scan complete` : `❌ ${row.input} — scan failed`,
+          );
+        }
+        scanStatus.current.set(row.id, row.status);
+        setScans((prev) =>
+          [row, ...prev.filter((s) => s.id !== row.id)]
+            .sort((a, b) => b.created_at.localeCompare(a.created_at))
+            .slice(0, 40),
+        );
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "findings" }, (payload) => {
+        const row = payload.new as Finding;
+        setFindings((prev) => (prev.some((f) => f.id === row.id) ? prev : [row, ...prev]));
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userName]);
+
+  const hostsByTarget = useMemo(() => groupBy(hosts, (h) => h.target_id), [hosts]);
+  const findingsByTarget = useMemo(() => groupBy(findings, (f) => f.target_id), [findings]);
 
   const categories = useMemo(() => {
     const cats = new Map<string, number>();
@@ -56,289 +91,263 @@ export function DashboardClient({
   const filtered = useMemo(() => {
     let result = targets;
     if (filter === "High risk") {
-      result = result.filter((t) => {
-        const tHosts = hostsByTarget.get(t.id) ?? [];
-        return tHosts.some((h) => h.exploitability === "High" || h.exploitability === "Critical");
-      });
+      result = result.filter((t) =>
+        (hostsByTarget.get(t.id) ?? []).some((h) => h.exploitability === "High" || h.exploitability === "Critical"),
+      );
     } else if (filter !== "All") {
       result = result.filter((t) => t.category === filter);
     }
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter((t) => {
-        if (t.name.toLowerCase().includes(q)) return true;
-        if (t.domain?.toLowerCase().includes(q)) return true;
-        if (t.ip_range?.toLowerCase().includes(q)) return true;
-        const tHosts = hostsByTarget.get(t.id) ?? [];
-        if (tHosts.some((h) => h.ip.toLowerCase().includes(q))) return true;
-        const tFindings = findingsByTarget.get(t.id) ?? [];
-        if (tFindings.some((f) => f.title.toLowerCase().includes(q))) return true;
+        if (t.name.toLowerCase().includes(q) || t.domain?.toLowerCase().includes(q) || t.ip_range?.toLowerCase().includes(q)) return true;
+        if ((hostsByTarget.get(t.id) ?? []).some((h) => h.ip.toLowerCase().includes(q))) return true;
+        if ((findingsByTarget.get(t.id) ?? []).some((f) => f.title.toLowerCase().includes(q))) return true;
         return false;
       });
     }
     return result;
   }, [targets, filter, search, hostsByTarget, findingsByTarget]);
 
-  const highRisk = hosts.filter((h) => h.exploitability === "High" || h.exploitability === "Critical").length;
-  const criticalFindings = findings.filter((f) => f.severity === "Critical" || f.severity === "High").length;
   const liveHosts = hosts.filter((h) => h.status === "Live").length;
+  const criticalFindings = findings.filter((f) => f.severity === "Critical" || f.severity === "High").length;
+  const activeScans = scans.filter((s) => s.status === "queued" || s.status === "running");
 
-  // Risk score: 0-100 based on findings severity
+  const severityData = useMemo(() => {
+    const dist = { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0 };
+    for (const f of findings) dist[f.severity as keyof typeof dist]++;
+    return Object.entries(dist).map(([label, value]) => ({ label, value, color: SEVERITY_COLORS[label] }));
+  }, [findings]);
+
   const riskScore = useMemo(() => {
     if (findings.length === 0) return 0;
-    const weights = { Critical: 25, High: 15, Medium: 8, Low: 3, Info: 0 };
-    let score = 0;
-    for (const f of findings) {
-      score += weights[f.severity as keyof typeof weights] ?? 0;
-    }
+    const w = { Critical: 25, High: 15, Medium: 8, Low: 3, Info: 0 };
+    const score = findings.reduce((s, f) => s + (w[f.severity as keyof typeof w] ?? 0), 0);
     return Math.min(100, Math.round((score / (findings.length * 10)) * 100));
   }, [findings]);
 
-  // Status distribution for bar chart
-  const statusDistribution = useMemo(() => {
-    const dist: Record<string, number> = {};
-    for (const t of targets) {
-      dist[t.status] = (dist[t.status] ?? 0) + 1;
+  // Scan activity over the last 14 days.
+  const scanSeries = useMemo(() => {
+    const days = 14;
+    const buckets = new Array(days).fill(0);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    for (const s of scans) {
+      const d = Math.floor((now.getTime() - new Date(s.created_at).setHours(0, 0, 0, 0)) / 86400000);
+      if (d >= 0 && d < days) buckets[days - 1 - d]++;
     }
-    return Object.entries(dist).map(([label, value]) => ({ label, value }));
-  }, [targets]);
-
-  // Severity distribution for bar chart
-  const severityBars = useMemo(() => {
-    const dist = { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0 };
-    for (const f of findings) dist[f.severity as keyof typeof dist]++;
-    return Object.entries(dist)
-      .filter(([, v]) => v > 0)
-      .map(([label, value]) => ({ label, value }));
-  }, [findings]);
-
-  const severityColors: Record<string, string> = {
-    Critical: "#f43f5e",
-    High: "#ec4899",
-    Medium: "#f59e0b",
-    Low: "#a855f7",
-    Info: "#5c5775",
-  };
+    return buckets;
+  }, [scans]);
 
   return (
-    <div className="flex flex-col gap-5">
-      {/* Top section: Stat cards + Risk Gauge */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
-        {/* Stat cards grid */}
-        <div className="flex-1 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard
-            icon="🎯"
-            label="Your Attack Surface"
-            value={hosts.length}
-            sub={`${liveHosts} live hosts`}
-            sparkData={[3, 5, 4, 7, 6, 8, hosts.length]}
-            sparkColor="#a855f7"
-          />
-          <StatCard
-            icon="🖥️"
-            label="Targets"
-            value={targets.length}
-            sub={`${new Set(targets.map((t) => t.category)).size} categories`}
-            sparkData={[1, 2, 2, 3, targets.length]}
-            sparkColor="#d946ef"
-          />
-          <StatCard
-            icon="⚠️"
-            label="High Risk"
-            value={highRisk}
-            accent={highRisk > 0}
-            sub="critical + high hosts"
-            sparkData={[0, 1, 0, 2, 1, highRisk]}
-            sparkColor="#f43f5e"
-          />
-          <StatCard
-            icon="🐛"
-            label="Findings"
-            value={findings.length}
-            accent={criticalFindings > 0}
-            sub={`${criticalFindings} critical/high`}
-            sparkData={[0, 2, 1, 3, 5, findings.length]}
-            sparkColor="#ec4899"
-          />
+    <div className="flex flex-col gap-6">
+      {/* Hero */}
+      <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-surface p-6">
+        <div className="pointer-events-none absolute inset-0 grid-bg opacity-60" />
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.2em] text-muted-dim">Recon workspace</p>
+            <h2 className="mt-1 text-2xl font-bold tracking-tight">
+              Welcome back, <span className="gradient-text">{userName.split("@")[0]}</span>
+            </h2>
+            <p className="mt-1 text-xs text-muted">
+              {targets.length} targets · {hosts.length} hosts · {findings.length} findings
+              {activeScans.length > 0 && (
+                <span className="ml-2 inline-flex items-center gap-1.5 text-amber-400">
+                  <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
+                  {activeScans.length} scan{activeScans.length > 1 ? "s" : ""} running
+                </span>
+              )}
+            </p>
+          </div>
+          <Link
+            href="/console"
+            className="relative rounded-xl border border-accent/30 bg-accent/15 px-4 py-2.5 text-sm font-semibold text-accent transition-all hover:bg-accent/25 hover:shadow-[0_0_24px_var(--color-accent-glow)]"
+          >
+            🛰️ Launch a scan
+          </Link>
+        </div>
+      </div>
+
+      {/* KPI row */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiCard label="Targets" value={targets.length} color="#a855f7" series={[1, 2, 2, 3, targets.length]} />
+        <KpiCard label="Live hosts" value={liveHosts} sub={`${hosts.length} total`} color="#d946ef" series={[2, 3, 5, 4, liveHosts]} />
+        <KpiCard label="Findings" value={findings.length} sub={`${criticalFindings} crit/high`} color="#ec4899" accent={criticalFindings > 0} series={scanSeries} />
+        <KpiCard label="Active scans" value={activeScans.length} sub={`${scans.length} total`} color="#f59e0b" live={activeScans.length > 0} series={scanSeries} />
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <div className="card p-5">
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Findings by severity</p>
+          <div className="flex items-center gap-5">
+            <Donut data={severityData.filter((d) => d.value > 0)} centerValue={findings.length} centerLabel="findings" />
+            <div className="flex-1">
+              <BarList data={severityData} />
+            </div>
+          </div>
         </div>
 
-        {/* Risk Score Gauge */}
-        <div className="flex items-center justify-center rounded-xl border border-white/5 bg-surface p-6 lg:w-[200px]">
+        <div className="card p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Scan activity · 14d</p>
+            <span className="text-[10px] text-muted-dim">{scans.length} total</span>
+          </div>
+          <AreaChart points={scanSeries} height={120} color="#a855f7" />
+          <p className="mt-2 text-[10px] text-muted-dim">
+            {scanSeries[scanSeries.length - 1]} today · peak {Math.max(...scanSeries)}/day
+          </p>
+        </div>
+
+        <div className="card flex items-center justify-center p-5">
           <RiskScoreGauge score={riskScore} label="risk score" />
         </div>
       </div>
 
-      {/* Severity distribution + Status bar chart */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {/* Severity bars */}
-        {severityBars.length > 0 && (
-          <div className="rounded-xl border border-white/5 bg-surface p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
-                Findings by severity
-              </span>
-              <span className="text-[10px] text-muted-dim">{findings.length} total</span>
-            </div>
-            <BarChart
-              data={severityBars}
-              colors={severityBars.map((d) => severityColors[d.label] ?? "#a855f7")}
-              height={80}
-            />
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-              {severityBars.map((d) => (
-                <div key={d.label} className="flex items-center gap-1.5 text-[10px] text-muted">
-                  <span className="h-2 w-2 rounded-sm" style={{ background: severityColors[d.label] }} />
-                  {d.label}: {d.value}
-                </div>
-              ))}
-            </div>
+      {/* Live scan feed */}
+      {scans.length > 0 && (
+        <div className="card p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
+              Live scan feed
+              {activeScans.length > 0 && <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400 text-amber-400" />}
+            </p>
+            <Link href="/console" className="text-[10px] text-accent hover:text-accent-dim">
+              Open console →
+            </Link>
           </div>
-        )}
-
-        {/* Status distribution */}
-        {statusDistribution.length > 0 && (
-          <div className="rounded-xl border border-white/5 bg-surface p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
-                Targets by status
-              </span>
-            </div>
-            <BarChart
-              data={statusDistribution}
-              colors={["#5c5775", "#818cf8", "#a855f7", "#d946ef", "#f59e0b", "#ec4899", "#f43f5e", "#10b981"]}
-              height={80}
-            />
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-              {statusDistribution.map((d) => (
-                <div key={d.label} className="text-[10px] text-muted">
-                  {d.label}: {d.value}
-                </div>
-              ))}
-            </div>
+          <div className="grid gap-2 lg:grid-cols-2">
+            {scans.slice(0, 6).map((s) => (
+              <ScanRow key={s.id} scan={s} />
+            ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Main content: Targets + Activity */}
+      {/* Targets + activity */}
       <div className="flex flex-col gap-4 lg:flex-row lg:gap-5">
         <div className="flex flex-1 flex-col gap-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-              <SearchBar value={search} onChange={setSearch} />
-            </div>
-          </div>
-
+          <SearchBar value={search} onChange={setSearch} />
           <FilterChips
             categories={categories.map(([cat, count]) => ({ cat, count }))}
             active={filter}
             onSelect={setFilter}
           />
 
-          {/* Category folders */}
-          {filter === "All" && !search && (
-            <div className="flex flex-wrap gap-2">
-              {categories.map(([cat, count]) => (
-                <button
-                  key={cat}
-                  onClick={() => setFilter(cat)}
-                  className="group flex items-center gap-2.5 rounded-lg border border-white/5 bg-surface px-3.5 py-2.5 text-sm transition-all duration-200 hover:border-accent/20 hover:bg-surface-hover hover:shadow-[0_0_20px_rgba(168,85,247,0.06)]"
-                >
-                  <span className="text-base transition-transform duration-200 group-hover:scale-110">
-                    {CATEGORY_ICONS[cat] ?? "📁"}
-                  </span>
-                  <span className="font-medium">{cat}</span>
-                  <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] text-muted-dim transition-colors group-hover:bg-accent/10 group-hover:text-accent">
-                    {count}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Targets grid */}
           {filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-white/8 px-8 py-20 text-center transition-colors hover:border-accent/15">
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 px-8 py-20 text-center">
               <div className="mb-3 text-4xl opacity-20">🎯</div>
               <p className="text-sm font-medium text-muted">No targets found</p>
-              <Link
-                href="/targets/new"
-                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-accent px-5 py-2 text-xs font-semibold text-black transition-all duration-200 hover:bg-accent-dim hover:shadow-[0_0_20px_rgba(168,85,247,0.3)]"
-              >
+              <Link href="/targets/new" className="mt-4 inline-flex rounded-lg bg-accent px-5 py-2 text-xs font-semibold text-black transition-all hover:bg-accent-dim">
                 + Add target
               </Link>
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {filtered.map((t) => (
-                <TargetCard
-                  key={t.id}
-                  target={t}
-                  hosts={hostsByTarget.get(t.id) ?? []}
-                  findings={findingsByTarget.get(t.id) ?? []}
-                />
+                <div key={t.id} className="card-hover rounded-2xl">
+                  <TargetCard target={t} hosts={hostsByTarget.get(t.id) ?? []} findings={findingsByTarget.get(t.id) ?? []} />
+                </div>
               ))}
             </div>
           )}
-
-          <Link
-            href="/targets/new"
-            className="fixed bottom-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-2xl font-bold text-black shadow-[0_0_24px_rgba(168,85,247,0.4)] transition-all duration-300 hover:scale-110 hover:shadow-[0_0_36px_rgba(168,85,247,0.5)]"
-          >
-            +
-          </Link>
         </div>
 
-        {/* Activity sidebar */}
         <div className="w-full flex-shrink-0 lg:w-72">
-          <div className="sticky top-6 rounded-xl border border-white/5 bg-surface overflow-hidden">
+          <div className="card sticky top-6 overflow-hidden">
             <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
-                Activity
-              </span>
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Activity</span>
               <span className="text-[10px] text-muted-dim">{activities.length} events</span>
             </div>
-            <div className="max-h-[400px] overflow-y-auto">
+            <div className="max-h-[420px] overflow-y-auto">
               {activities.length === 0 ? (
                 <div className="px-4 py-10 text-center">
                   <div className="mb-2 text-2xl opacity-20">📡</div>
                   <p className="text-xs text-muted-dim">No activity yet</p>
                 </div>
               ) : (
-                <div className="flex flex-col">
-                  {activities.slice(0, 15).map((a) => (
-                    <div
-                      key={a.id}
-                      className="flex gap-3 border-b border-white/[0.03] px-4 py-2.5 transition-colors hover:bg-surface-hover last:border-0"
-                    >
-                      <div className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-accent/50" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs leading-relaxed">
-                          <span className="font-medium text-foreground">{a.user_name ?? "system"}</span>{" "}
-                          <span className="text-muted">{a.action}</span>
-                        </p>
-                        {a.detail && (
-                          <p className="mt-0.5 text-[10px] text-muted-dim line-clamp-1">{a.detail}</p>
-                        )}
-                        <p className="mt-0.5 font-mono text-[10px] text-muted-dim">
-                          {formatTimeAgo(a.created_at)}
-                        </p>
-                      </div>
+                activities.slice(0, 18).map((a) => (
+                  <div key={a.id} className="flex gap-3 border-b border-white/[0.03] px-4 py-2.5 last:border-0 hover:bg-surface-hover">
+                    <div className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-accent/50" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs leading-relaxed">
+                        <span className="font-medium">{a.user_name ?? "system"}</span> <span className="text-muted">{a.action}</span>
+                      </p>
+                      {a.detail && <p className="mt-0.5 text-[10px] text-muted-dim line-clamp-1">{a.detail}</p>}
+                      <p className="mt-0.5 font-mono text-[10px] text-muted-dim">{timeAgo(a.created_at)}</p>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))
               )}
             </div>
           </div>
         </div>
       </div>
+
+      <Link
+        href="/targets/new"
+        className="fixed bottom-6 right-6 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-2xl font-bold text-black shadow-[0_0_24px_rgba(168,85,247,0.4)] transition-all hover:scale-110"
+      >
+        +
+      </Link>
+
+      {/* Live toasts */}
+      <div className="fixed bottom-6 left-6 z-50 flex flex-col gap-2">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`animate-slide-in flex items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-medium shadow-2xl backdrop-blur ${
+              t.kind === "ok"
+                ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-200"
+                : "border-rose-500/30 bg-rose-500/15 text-rose-200"
+            }`}
+          >
+            {t.text}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-function formatTimeAgo(date: string) {
-  const now = Date.now();
-  const then = new Date(date).getTime();
-  const diff = Math.floor((now - then) / 1000);
+function KpiCard({
+  label, value, sub, color, series, accent, live,
+}: {
+  label: string; value: number; sub?: string; color: string; series: number[]; accent?: boolean; live?: boolean;
+}) {
+  return (
+    <div className="card card-hover relative overflow-hidden p-4">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">{label}</span>
+        {live && <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400 text-amber-400" />}
+      </div>
+      <div className="mt-1.5 flex items-end justify-between gap-2">
+        <span className={`text-3xl font-bold tabular-nums ${accent ? "text-rose-400" : ""}`} style={accent ? undefined : { color }}>
+          {value}
+        </span>
+        <div className="h-8 w-20 opacity-80">
+          <AreaChart points={series.length ? series : [0, 0]} height={32} color={color} />
+        </div>
+      </div>
+      {sub && <p className="mt-1 text-[10px] text-muted-dim">{sub}</p>}
+    </div>
+  );
+}
+
+function groupBy<T>(items: T[], key: (t: T) => string): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    const list = map.get(k) ?? [];
+    list.push(item);
+    map.set(k, list);
+  }
+  return map;
+}
+
+function timeAgo(date: string) {
+  const diff = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
