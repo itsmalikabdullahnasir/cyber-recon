@@ -22,6 +22,7 @@ export interface Target {
   methodology: string | null;
   tags: string[] | null;
   updated_at: string;
+  is_console?: boolean;
 }
 
 export interface Host {

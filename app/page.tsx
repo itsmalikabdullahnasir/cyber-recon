@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { DashboardClient } from "@/components/DashboardClient";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -15,6 +16,7 @@ export default async function DashboardPage() {
   const { data: targets } = await supabase
     .from("targets")
     .select("*")
+    .eq("is_console", false)
     .order("created_at", { ascending: false });
 
   const { data: hosts } = await supabase.from("hosts").select("*");
@@ -53,6 +55,12 @@ export default async function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/console"
+            className="flex items-center gap-1.5 rounded-md border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
+          >
+            🛰️ Scan Console
+          </Link>
           <ThemeToggle />
           <NotificationBell userEmail={user.email ?? ""} />
           <div className="hidden items-center gap-1.5 rounded-md border border-white/5 bg-surface px-2.5 py-1.5 text-xs text-muted sm:flex">

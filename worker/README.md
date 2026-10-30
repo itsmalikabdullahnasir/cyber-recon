@@ -20,10 +20,11 @@ Passive stages (subfinder/dnsx/httpx) run on any valid target. **Active stages
 
 ---
 
-## Step 0 — Apply the database migration
+## Step 0 — Apply the database migrations
 
-In the Supabase SQL editor, paste and run
-[`supabase/migrations/20261030000000_recon_worker.sql`](../supabase/migrations/20261030000000_recon_worker.sql).
+In the Supabase SQL editor, run both migrations in order:
+1. [`supabase/migrations/20261030000000_recon_worker.sql`](../supabase/migrations/20261030000000_recon_worker.sql)
+2. [`supabase/migrations/20261030000100_console_and_tools.sql`](../supabase/migrations/20261030000100_console_and_tools.sql) — adds the Scan Console target + columns for the dir-brute / TLS / WAF stages.
 It only adds things (a `scope_entries` table, a `scans` table, and nullable
 columns on `subdomains`/`hosts`/`findings`), so your existing data and UI keep
 working. It also adds `scans` to the `supabase_realtime` publication for the live
@@ -63,6 +64,31 @@ python3 -m venv .venv
 packages or `~/.bashrc`. FastAPI + uvicorn serve the API; `httpx` talks to
 Supabase and NVD; `defusedxml` parses nmap XML safely (no entity-expansion
 attacks).
+
+### Step 1b — install the Scan Console tools
+
+The Console adds directory brute-forcing, deeper fingerprinting, a TLS audit and
+a web-server scanner. Install the ones you want (each stage is skipped gracefully
+if its binary is missing or its `ENABLE_*` flag is false):
+
+```bash
+# feroxbuster (dir brute-force) + SecLists wordlist + wafw00f + nikto
+sudo apt-get update && sudo apt-get install -y feroxbuster seclists wafw00f nikto
+# whatweb + testssl.sh are already on your box per your setup notes.
+```
+
+Then confirm the paths the worker expects exist (adjust `.env` if different):
+
+```bash
+ls -1 /usr/bin/feroxbuster /usr/bin/wafw00f /usr/bin/nikto \
+      /usr/share/seclists/Discovery/Web-Content/common.txt \
+      "$(command -v whatweb)" "$(command -v testssl.sh || echo /home/ubuntu/testssl.sh/testssl.sh)"
+```
+
+If `feroxbuster` isn't in the Ubuntu repo for your release, grab the static
+binary: `curl -sL https://raw.githubusercontent.com/epi052/feroxbuster/main/install-nix.sh | bash` then move `./feroxbuster` to `/usr/bin/`. Set the real paths in `.env`
+(`FEROXBUSTER_BIN`, `WORDLIST`, `TESTSSL_BIN`, …). `nikto` is **off by default**
+(`ENABLE_NIKTO=false`) because it's noisy and slow — flip it on per your needs.
 
 ---
 
@@ -237,6 +263,22 @@ worker. (Your existing `/api/scan` header-scanner is untouched.)
 ```
 
 ---
+
+## Scan Console
+
+Beyond the per-target tab, there's a standalone **🛰️ Scan Console** (link in the
+dashboard header, page at `/console`). It targets an auto-created hidden target
+whose scope entries are the **active-scan allowlist**. Use it to:
+
+- scan a **single** IP/domain, or paste **many** (newline, comma, or JSON —
+  `["example.com","203.0.113.10"]` or `[{"target":"x","mode":"full"}]`);
+- watch each job stream its stages live;
+- read results grouped by host and export the JSON bulk shape.
+
+**Passive** runs on anything. **Full (active)** — nmap, testssl, feroxbuster,
+nikto, nuclei — is refused unless the IP/domain matches an allowlist entry you
+add on that page first. This is the same gate as the per-target scope; the
+Console just surfaces one shared allowlist.
 
 ## Operating notes
 

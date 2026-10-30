@@ -215,12 +215,22 @@ class FakeDB:
 @pytest.fixture
 def fake_tools(monkeypatch, tmp_path, cvedb):
     from app import pipeline
-    from app.runners import dnsx, subfinder
+    from app.runners import dnsx, feroxbuster, nikto, subfinder, testssl, wafw00f, whatweb
 
-    calls = {"nmap": [], "nuclei": []}
+    calls = {"nmap": [], "nuclei": [], "ferox": [], "testssl": [], "nikto": [], "whatweb": []}
     monkeypatch.setattr(pipeline, "get_settings", lambda: type("S", (), {
         "results_dir": tmp_path, "max_heavy_hosts": 20, "cve_max_per_product": 10, "nmap_require_ip_scope": False,
+        "enable_whatweb": True, "enable_wafw00f": True, "enable_testssl": True,
+        "enable_feroxbuster": True, "enable_nikto": False,
     })())
+
+    monkeypatch.setattr(whatweb, "run", lambda url, w, n: (calls["whatweb"].append(url) or [("PHP", "7.4.3")]))
+    monkeypatch.setattr(wafw00f, "run", lambda url, w, n: "ModSecurity" if "other" not in url else None)
+    monkeypatch.setattr(testssl, "run", lambda host, w, n: (calls["testssl"].append(host) or
+                        [{"id": "BREACH", "severity": "LOW", "finding": "potentially vulnerable", "cve": None}]))
+    monkeypatch.setattr(feroxbuster, "run", lambda url, w, n: (calls["ferox"].append(url) or
+                        [{"path": "/admin", "url": url + "/admin", "status": 403, "length": 12}]))
+    monkeypatch.setattr(nikto, "run", lambda url, w, n: calls["nikto"].append(url) or [])
     monkeypatch.setattr(subfinder, "run", lambda d, w: [{"name": n, "sources": ["crtsh"]} for n in
                                                          ["example.com", "www.example.com", "cdn.example.com", "dead.example.com", "other.example.com"]])
     monkeypatch.setattr(dnsx, "run", lambda names, w: {
@@ -290,6 +300,19 @@ def test_full_pipeline_respects_scope_and_cdn(fake_tools):
     assert cves == {"CVE-2021-23017", "CVE-2020-15778"}
     assert any(f["source"] == "nuclei" for f in db.tables["findings"])
     assert [n["title"] for n in db.tables["notifications"]] == ["Recon scan started", "Recon scan finished"]
+
+    # New tool stages. whatweb/wafw00f are passive (run on all 4 probed hosts),
+    # while testssl/feroxbuster are active and only hit the 3 in-scope hosts.
+    assert len(fake_tools["whatweb"]) == 4
+    assert host["waf"] == "ModSecurity"
+    assert "PHP:7.4.3" in host["tech"]
+    assert len(fake_tools["testssl"]) == 3 and len(fake_tools["ferox"]) == 3
+    assert "https://other.example.com" not in fake_tools["ferox"]  # out of scope, never dir-scanned
+    assert host["dirs"][0]["path"] == "/admin"
+    assert any(f["source"] == "testssl" for f in db.tables["findings"])
+    dir_findings = [f for f in db.tables["findings"] if f["source"] == "feroxbuster"]
+    assert dir_findings and dir_findings[0]["severity"] == "Low"
+    assert scan["stages"]["nikto"]["status"] == "skipped"  # disabled by default
 
     # Re-run: findings are not duplicated, and a user's status change survives.
     db.tables["findings"][0]["status"] = "False Positive"

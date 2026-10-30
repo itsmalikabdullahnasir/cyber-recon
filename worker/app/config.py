@@ -37,6 +37,27 @@ class Settings:
     nuclei_bin: str = field(default_factory=lambda: os.environ.get("NUCLEI_BIN", "/home/ubuntu/.pdtm/go/bin/nuclei"))
     nmap_bin: str = field(default_factory=lambda: os.environ.get("NMAP_BIN", "/usr/bin/nmap"))
     nuclei_templates: str = field(default_factory=lambda: os.environ.get("NUCLEI_TEMPLATES", "/home/ubuntu/nuclei-templates"))
+    # Extra Kali-style tools (installed separately; see worker/README).
+    feroxbuster_bin: str = field(default_factory=lambda: os.environ.get("FEROXBUSTER_BIN", "/usr/bin/feroxbuster"))
+    whatweb_bin: str = field(default_factory=lambda: os.environ.get("WHATWEB_BIN", "/usr/bin/whatweb"))
+    wafw00f_bin: str = field(default_factory=lambda: os.environ.get("WAFW00F_BIN", "/usr/bin/wafw00f"))
+    nikto_bin: str = field(default_factory=lambda: os.environ.get("NIKTO_BIN", "/usr/bin/nikto"))
+    testssl_bin: str = field(default_factory=lambda: os.environ.get("TESTSSL_BIN", "/home/ubuntu/testssl.sh/testssl.sh"))
+    wordlist: str = field(default_factory=lambda: os.environ.get("WORDLIST", "/usr/share/seclists/Discovery/Web-Content/common.txt"))
+
+    # Per-tool enable flags (so a missing binary doesn't fail every scan).
+    enable_whatweb: bool = field(default_factory=lambda: _bool("ENABLE_WHATWEB", True))
+    enable_wafw00f: bool = field(default_factory=lambda: _bool("ENABLE_WAFW00F", True))
+    enable_testssl: bool = field(default_factory=lambda: _bool("ENABLE_TESTSSL", True))
+    enable_feroxbuster: bool = field(default_factory=lambda: _bool("ENABLE_FEROXBUSTER", True))
+    enable_nikto: bool = field(default_factory=lambda: _bool("ENABLE_NIKTO", False))  # noisy/slow: off by default
+
+    # feroxbuster intensity (conservative defaults for the 1 GB box).
+    ferox_threads: int = field(default_factory=lambda: _int("FEROX_THREADS", 10))
+    ferox_rate_limit: int = field(default_factory=lambda: _int("FEROX_RATE_LIMIT", 50))
+    ferox_depth: int = field(default_factory=lambda: _int("FEROX_DEPTH", 1))
+    ferox_max_results: int = field(default_factory=lambda: _int("FEROX_MAX_RESULTS", 200))
+    ferox_status: str = field(default_factory=lambda: os.environ.get("FEROX_STATUS", "200,204,301,302,307,401,403,405,500"))
 
     # Resource limits (1 vCPU / 1 GB RAM).
     queue_max: int = field(default_factory=lambda: _int("QUEUE_MAX", 5))
@@ -50,6 +71,11 @@ class Settings:
     httpx_timeout: int = field(default_factory=lambda: _int("HTTPX_TIMEOUT", 900))
     nmap_host_timeout: int = field(default_factory=lambda: _int("NMAP_HOST_TIMEOUT", 900))
     nuclei_timeout: int = field(default_factory=lambda: _int("NUCLEI_TIMEOUT", 3600))
+    whatweb_timeout: int = field(default_factory=lambda: _int("WHATWEB_TIMEOUT", 120))
+    wafw00f_timeout: int = field(default_factory=lambda: _int("WAFW00F_TIMEOUT", 120))
+    testssl_timeout: int = field(default_factory=lambda: _int("TESTSSL_TIMEOUT", 900))
+    feroxbuster_timeout: int = field(default_factory=lambda: _int("FEROXBUSTER_TIMEOUT", 1200))
+    nikto_timeout: int = field(default_factory=lambda: _int("NIKTO_TIMEOUT", 900))
 
     # True: nmap only hits IPs that are themselves in a scope 'ip'/'cidr' entry.
     # False: an in-scope hostname also authorizes the IP it resolves to.

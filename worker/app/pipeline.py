@@ -1,11 +1,13 @@
 """The scan pipeline. Runs in the single worker thread, one scan at a time.
 
-passive: subfinder -> dnsx -> httpx (+CDN flag) -> CVE match on httpx tech
-full:    passive + [scope gate] nmap -> CVE match on nmap versions -> nuclei
+passive: subfinder -> dnsx -> httpx (+CDN) -> whatweb/wafw00f -> CVE match on tech
+full:    passive + [scope gate] nmap -> CVE on nmap versions -> nuclei
+                 -> testssl -> feroxbuster (dirs) -> nikto
 """
 
 import hashlib
 import logging
+import re
 from collections import defaultdict
 from datetime import date
 from pathlib import Path
@@ -13,7 +15,18 @@ from pathlib import Path
 from . import cve_db
 from .config import get_settings
 from .proc import ToolError
-from .runners import dnsx, http_probe, nmap, nuclei, subfinder
+from .runners import (
+    dnsx,
+    feroxbuster,
+    http_probe,
+    nikto,
+    nmap,
+    nuclei,
+    subfinder,
+    testssl,
+    wafw00f,
+    whatweb,
+)
 from .scope import Scope
 from .supa import Supabase, now_iso
 from .validation import normalize_public_ip, parse_target
@@ -119,7 +132,12 @@ class Pipeline:
         cdn = sum(1 for p in probes.values() if p["is_cdn"])
         self.stage("httpx", "done", live=len(probes), cdn=cdn, **({"warning": warning} if warning else {}))
 
-        # f (passive part): CVEs from httpx tech versions
+        # c2 + c3: whatweb (deeper tech) + wafw00f (WAF). Passive tier: light,
+        # runs on any input. whatweb output is merged into probe tech so the
+        # CVE match below sees it.
+        self._fingerprint(probes)
+
+        # f (passive part): CVEs from httpx + whatweb tech versions
         cve_ready = cve_db.is_ready()
         if cve_ready:
             self.stage("cve", "running", source="httpx")
@@ -188,16 +206,36 @@ class Pipeline:
             n = self._cves_from_nmap(allowed)
             self.stage("cve", "done", count=self.stages.get("cve", {}).get("count", 0) + n, source="httpx+nmap")
 
-        # g: nuclei, only on in-scope hostnames / IPs
-        urls = []
-        for name, p in sorted(probes.items()):
-            if scope.hostname_allowed(name) or any(scope.ip_allowed(ip) for ip in p["ips"]):
-                urls.append(self._url_for(name, p))
-        urls = urls[: self.s.max_heavy_hosts]
+        # In-scope live URLs (host-gated), reused by nuclei + the web tools below.
+        inscope: list[tuple[str, dict]] = [
+            (name, p) for name, p in sorted(probes.items())
+            if scope.hostname_allowed(name) or any(scope.ip_allowed(ip) for ip in p["ips"])
+        ][: self.s.max_heavy_hosts]
+        urls = [self._url_for(name, p) for name, p in inscope]
+
+        # g: nuclei
         self.stage("nuclei", "running", urls=len(urls))
         results = nuclei.run(urls, self.workdir)
         n = self._apply_nuclei(results, probes)
         self.stage("nuclei", "done", urls=len(urls), findings=n)
+
+        # h: testssl (TLS audit)
+        if self.s.enable_testssl:
+            self._run_testssl(inscope)
+        else:
+            self.stage("testssl", "skipped", detail="disabled")
+
+        # i: feroxbuster (content/directory discovery)
+        if self.s.enable_feroxbuster:
+            self._run_feroxbuster(inscope)
+        else:
+            self.stage("dirs", "skipped", detail="disabled")
+
+        # j: nikto (web-server misconfig). Off by default (noisy/slow).
+        if self.s.enable_nikto:
+            self._run_nikto(inscope)
+        else:
+            self.stage("nikto", "skipped", detail="disabled (set ENABLE_NIKTO=true)")
 
     # -- DB writes -----------------------------------------------------------
     def _load_existing(self) -> None:
@@ -274,6 +312,161 @@ class Pipeline:
                                                 "checked_by": "recon-worker", **cols})
             if rows:
                 self.hosts[ip] = rows[0]
+
+    # -- extra tool stages ---------------------------------------------------
+    @staticmethod
+    def _safe(name: str) -> str:
+        return re.sub(r"[^a-z0-9.\-]", "_", name.lower())[:60] or "host"
+
+    def _host_ip_for(self, probe: dict) -> str | None:
+        for ip in probe.get("ips") or []:
+            if ip in self.hosts:
+                return ip
+        return None
+
+    def _fingerprint(self, probes: dict[str, dict]) -> None:
+        """whatweb (merge tech) + wafw00f (WAF). Passive tier, light-touch."""
+        tools = [t for t, on in (("whatweb", self.s.enable_whatweb), ("wafw00f", self.s.enable_wafw00f)) if on]
+        if not probes or not tools:
+            self.stage("fingerprint", "skipped", detail="no live hosts" if not probes else "disabled")
+            return
+        self.stage("fingerprint", "running", tools=tools)
+        items = sorted(probes.items())[: self.s.max_heavy_hosts]
+        tech_added = waf_found = 0
+        for name, p in items:
+            url = self._url_for(name, p)
+            if self.s.enable_whatweb:
+                try:
+                    pairs = whatweb.run(url, self.workdir, self._safe(name))
+                except Exception as e:
+                    log.warning("whatweb %s: %s", name, e)
+                    pairs = []
+                added = False
+                for prod, ver in pairs:
+                    tok = f"{prod}:{ver}" if ver else prod
+                    if tok not in p["tech"]:
+                        p["tech"].append(tok)
+                        added = True
+                        tech_added += 1
+                if added:
+                    merged = sorted(set(p["tech"]))
+                    if name in self.subs:
+                        self._write_subs({name: {"tech": merged, "services": ", ".join(merged)[:500] or None}})
+                    ip = self._host_ip_for(p)
+                    if ip:
+                        self._upsert_hosts({ip: {"tech": sorted(set((self.hosts[ip].get("tech") or []) + merged))}})
+            if self.s.enable_wafw00f:
+                try:
+                    waf = wafw00f.run(url, self.workdir, self._safe(name))
+                except Exception as e:
+                    log.warning("wafw00f %s: %s", name, e)
+                    waf = None
+                if waf:
+                    waf_found += 1
+                    ip = self._host_ip_for(p)
+                    if ip:
+                        self._upsert_hosts({ip: {"waf": waf}})
+        self.stage("fingerprint", "done", hosts=len(items), tech_added=tech_added, waf=waf_found)
+
+    def _run_testssl(self, inscope: list[tuple[str, dict]]) -> None:
+        if not inscope:
+            self.stage("testssl", "skipped", detail="no in-scope live hosts")
+            return
+        self.stage("testssl", "running", hosts=len(inscope))
+        rows, total = [], 0
+        for i, (name, p) in enumerate(inscope, 1):
+            try:
+                findings = testssl.run(name, self.workdir, self._safe(name))
+            except Exception as e:
+                log.warning("testssl %s: %s", name, e)
+                continue
+            ip = self._host_ip_for(p)
+            if findings and ip:
+                self._upsert_hosts({ip: {"tls_findings": findings[:50]}})
+            host_id = self.hosts[ip]["id"] if ip else None
+            sub = self.subs.get(name)
+            for f in findings:
+                total += 1
+                rows.append({
+                    "target_id": self.target_id, "host_id": host_id,
+                    "subdomain_id": sub["id"] if sub else None, "scan_id": self.scan_id,
+                    "title": f"TLS: {f['finding']}"[:300], "type": "tls",
+                    "severity": app_severity(f["severity"]), "status": "New",
+                    "cve_id": f["cve"], "affected_url": p.get("url") or f"https://{name}",
+                    "evidence": f"testssl.sh {f['id']}: {f['finding']}"[:4000],
+                    "found_by": "recon-worker", "source": "testssl", "tags": ["tls", "testssl"],
+                    "fingerprint": f"testssl:{self.target_id}:{name}:{f['id']}",
+                })
+            self.stage("testssl", "running", done=i, hosts=len(inscope), findings=total)
+        n = self._save_findings(rows)
+        self.stage("testssl", "done", hosts=len(inscope), findings=n)
+
+    def _run_feroxbuster(self, inscope: list[tuple[str, dict]]) -> None:
+        if not inscope:
+            self.stage("dirs", "skipped", detail="no in-scope live hosts")
+            return
+        self.stage("dirs", "running", hosts=len(inscope))
+        rows, total = [], 0
+        for i, (name, p) in enumerate(inscope, 1):
+            url = self._url_for(name, p)
+            try:
+                dirs = feroxbuster.run(url, self.workdir, self._safe(name))
+            except ToolError as e:
+                self.stage("dirs", "running", done=i, hosts=len(inscope), found=total, error=str(e)[:200])
+                continue
+            except Exception as e:
+                log.warning("feroxbuster %s: %s", name, e)
+                continue
+            ip = self._host_ip_for(p)
+            if dirs and ip:
+                self._upsert_hosts({ip: {"dirs": dirs}})
+            host_id = self.hosts[ip]["id"] if ip else None
+            sub = self.subs.get(name)
+            for d in dirs:
+                total += 1
+                sev = "Low" if d["status"] in (200, 401, 403, 500) else "Info"
+                rows.append({
+                    "target_id": self.target_id, "host_id": host_id,
+                    "subdomain_id": sub["id"] if sub else None, "scan_id": self.scan_id,
+                    "title": f"Exposed path [{d['status']}] {d['path']}"[:300], "type": "exposed-path",
+                    "severity": sev, "status": "New", "affected_url": d["url"],
+                    "evidence": f"feroxbuster: {d['url']} -> HTTP {d['status']} ({d['length']} bytes)"[:4000],
+                    "found_by": "recon-worker", "source": "feroxbuster", "tags": ["content", "feroxbuster"],
+                    "fingerprint": f"ferox:{self.target_id}:{name}:{d['status']}:{d['path']}",
+                })
+            self.stage("dirs", "running", done=i, hosts=len(inscope), found=total)
+        n = self._save_findings(rows)
+        self.stage("dirs", "done", hosts=len(inscope), found=n)
+
+    def _run_nikto(self, inscope: list[tuple[str, dict]]) -> None:
+        if not inscope:
+            self.stage("nikto", "skipped", detail="no in-scope live hosts")
+            return
+        self.stage("nikto", "running", hosts=len(inscope))
+        rows, total = [], 0
+        for i, (name, p) in enumerate(inscope, 1):
+            url = self._url_for(name, p)
+            try:
+                items = nikto.run(url, self.workdir, self._safe(name))
+            except Exception as e:
+                log.warning("nikto %s: %s", name, e)
+                continue
+            host_id = self.hosts[ip]["id"] if (ip := self._host_ip_for(p)) else None
+            sub = self.subs.get(name)
+            for v in items:
+                total += 1
+                rows.append({
+                    "target_id": self.target_id, "host_id": host_id,
+                    "subdomain_id": sub["id"] if sub else None, "scan_id": self.scan_id,
+                    "title": f"nikto: {v['msg']}"[:300], "type": "nikto",
+                    "severity": "Low", "status": "New", "affected_url": v["url"] or url,
+                    "evidence": f"nikto {v['id']} [{v['method']}] {v['url']}: {v['msg']}"[:4000],
+                    "found_by": "recon-worker", "source": "nikto", "tags": ["nikto"],
+                    "fingerprint": f"nikto:{self.target_id}:{name}:{v['id']}:{v['url']}",
+                })
+            self.stage("nikto", "running", done=i, hosts=len(inscope), findings=total)
+        n = self._save_findings(rows)
+        self.stage("nikto", "done", hosts=len(inscope), findings=n)
 
     def _apply_nmap(self, ip: str, result: dict) -> None:
         ports = result["ports"]
