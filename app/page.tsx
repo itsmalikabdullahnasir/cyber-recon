@@ -16,7 +16,6 @@ export default async function DashboardPage() {
   const { data: targets } = await supabase
     .from("targets")
     .select("*")
-    .eq("is_console", false)
     .order("created_at", { ascending: false });
 
   const { data: hosts } = await supabase.from("hosts").select("*");

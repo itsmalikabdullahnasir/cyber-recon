@@ -20,7 +20,7 @@ const SEVERITY_COLORS: Record<string, string> = {
 };
 
 export function DashboardClient({
-  targets,
+  targets: targetsAll,
   hosts,
   findings: findingsInit,
   activities,
@@ -34,6 +34,8 @@ export function DashboardClient({
   scans: Scan[];
   userName: string;
 }) {
+  // Hide the hidden Scan Console bucket (works even before migration 2 adds the column).
+  const targets = targetsAll.filter((t) => !t.is_console);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [findings, setFindings] = useState<Finding[]>(findingsInit);
