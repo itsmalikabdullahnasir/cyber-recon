@@ -38,6 +38,8 @@ export function DashboardClient({
   const targets = targetsAll.filter((t) => !t.is_console);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
+  const [risk, setRisk] = useState<"All" | "Critical" | "High" | "Medium" | "Low">("All");
+  const [visible, setVisible] = useState(50);
   const [findings, setFindings] = useState<Finding[]>(findingsInit);
   const [scans, setScans] = useState<Scan[]>(scansInit);
   const [toasts, setToasts] = useState<{ id: string; text: string; kind: "ok" | "err" }[]>([]);
@@ -99,6 +101,16 @@ export function DashboardClient({
     } else if (filter !== "All") {
       result = result.filter((t) => t.category === filter);
     }
+    if (risk !== "All") {
+      const min = { Critical: 4, High: 3, Medium: 2, Low: 1 }[risk];
+      const hostRank: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1, Info: 0 };
+      const sevRank: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1, Info: 0 };
+      result = result.filter((t) => {
+        const hMax = Math.max(0, ...(hostsByTarget.get(t.id) ?? []).map((h) => hostRank[h.exploitability] ?? 0));
+        const fMax = Math.max(0, ...(findingsByTarget.get(t.id) ?? []).map((f) => sevRank[f.severity] ?? 0));
+        return Math.max(hMax, fMax) >= min;
+      });
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter((t) => {
@@ -109,7 +121,7 @@ export function DashboardClient({
       });
     }
     return result;
-  }, [targets, filter, search, hostsByTarget, findingsByTarget]);
+  }, [targets, filter, risk, search, hostsByTarget, findingsByTarget]);
 
   const liveHosts = hosts.filter((h) => h.status === "Live").length;
   const criticalFindings = findings.filter((f) => f.severity === "Critical" || f.severity === "High").length;
@@ -230,7 +242,21 @@ export function DashboardClient({
       {/* Targets + activity */}
       <div className="flex flex-col gap-4 lg:flex-row lg:gap-5">
         <div className="flex flex-1 flex-col gap-4">
-          <SearchBar value={search} onChange={setSearch} />
+          <div className="flex flex-wrap items-center gap-2">
+            <SearchBar value={search} onChange={setSearch} />
+            <select
+              value={risk}
+              onChange={(e) => { setRisk(e.target.value as typeof risk); setVisible(50); }}
+              className="rounded-lg border border-white/10 bg-surface px-2.5 py-2.5 text-xs outline-none focus:border-accent/40"
+            >
+              <option value="All">All risk</option>
+              <option value="Critical">Critical</option>
+              <option value="High">High+</option>
+              <option value="Medium">Medium+</option>
+              <option value="Low">Low+</option>
+            </select>
+            <span className="text-[11px] text-muted-dim">{filtered.length} groups</span>
+          </div>
           <FilterChips
             categories={categories.map(([cat, count]) => ({ cat, count }))}
             active={filter}
@@ -246,13 +272,23 @@ export function DashboardClient({
               </Link>
             </div>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {filtered.map((t) => (
-                <div key={t.id} className="card-hover rounded-2xl">
-                  <TargetCard target={t} hosts={hostsByTarget.get(t.id) ?? []} findings={findingsByTarget.get(t.id) ?? []} />
-                </div>
-              ))}
-            </div>
+            <>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {filtered.slice(0, visible).map((t) => (
+                  <div key={t.id} className="card-hover rounded-2xl">
+                    <TargetCard target={t} hosts={hostsByTarget.get(t.id) ?? []} findings={findingsByTarget.get(t.id) ?? []} />
+                  </div>
+                ))}
+              </div>
+              {filtered.length > visible && (
+                <button
+                  onClick={() => setVisible((v) => v + 50)}
+                  className="mx-auto mt-1 rounded-lg border border-white/10 px-4 py-1.5 text-xs text-muted transition-colors hover:text-foreground"
+                >
+                  Load more ({filtered.length - visible} more)
+                </button>
+              )}
+            </>
           )}
         </div>
 

@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  let body: { targets?: unknown; mode?: Mode };
+  let body: { targets?: unknown; mode?: Mode; group_id?: string };
   try {
     body = await request.json();
   } catch {
@@ -43,14 +43,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Too many targets (max ${MAX_BULK})` }, { status: 400 });
   }
 
-  const consoleTargetId = await ensureConsoleTarget(supabase);
+  // Scan into the chosen engagement group, or fall back to the console bucket.
+  let consoleTargetId: string | null = null;
+  if (body.group_id) {
+    const { data: grp } = await supabase.from("targets").select("id").eq("id", body.group_id).maybeSingle();
+    consoleTargetId = grp?.id ?? null;
+    if (!consoleTargetId) {
+      return NextResponse.json({ error: "Group not found" }, { status: 404 });
+    }
+  } else {
+    consoleTargetId = await ensureConsoleTarget(supabase);
+  }
   if (!consoleTargetId) {
-    return NextResponse.json({ error: "Could not initialize the console target" }, { status: 500 });
+    return NextResponse.json({ error: "Could not resolve the target group" }, { status: 500 });
   }
 
-  // Allowlist (scope_entries of the console target) — only needed for active scans.
+  // Allowlist (scope_entries of the destination group) — only needed for active scans.
   let entries: ScopeEntry[] = [];
-  if (rawList.some((r) => r.mode === "full")) {
+  if (rawList.some((r) => (r.mode ?? mode) === "full")) {
     const { data } = await supabase
       .from("scope_entries")
       .select("kind, value")

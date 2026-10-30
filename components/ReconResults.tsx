@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Finding, Host, Subdomain } from "@/lib/types";
+import type { Finding, Host, Subdomain, Target } from "@/lib/types";
+import { createClient } from "@/lib/supabase/client";
+
+type GroupLite = Pick<Target, "id" | "name">;
 
 const SEV_COLOR: Record<string, string> = {
   Critical: "border-rose-500/30 bg-rose-500/10 text-rose-300",
@@ -14,6 +17,8 @@ const SEV_RANK: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low:
 
 // The export shape requested, extended with ports/tech/cves.
 interface Row {
+  subId: string | null;
+  hostId: string | null;
   subdomain: string;
   ip: string | null;
   cloudflare: boolean;
@@ -30,13 +35,38 @@ export function ReconResults({
   subdomains,
   hosts,
   findings,
+  assignTargets,
+  onAssigned,
 }: {
   subdomains: Subdomain[];
   hosts: Host[];
   findings: Finding[];
+  assignTargets?: GroupLite[];
+  onAssigned?: () => void;
 }) {
+  const [assigning, setAssigning] = useState<string | null>(null);
+
+  async function assign(row: Row, targetId: string) {
+    if (!targetId) return;
+    setAssigning(row.subId ?? row.hostId ?? "");
+    const supabase = createClient();
+    if (row.subId) {
+      await supabase.from("subdomains").update({ target_id: targetId }).eq("id", row.subId);
+      await supabase.from("findings").update({ target_id: targetId }).eq("subdomain_id", row.subId);
+    }
+    if (row.hostId) {
+      await supabase.from("hosts").update({ target_id: targetId }).eq("id", row.hostId);
+      await supabase.from("findings").update({ target_id: targetId }).eq("host_id", row.hostId);
+    }
+    setAssigning(null);
+    onAssigned?.();
+  }
+
   const [onlyLive, setOnlyLive] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [query, setQuery] = useState("");
+  const [risk, setRisk] = useState<"All" | "Critical" | "High" | "Medium" | "Low">("All");
+  const [limit, setLimit] = useState(50);
 
   const rows = useMemo<Row[]>(() => {
     const hostByIp = new Map(hosts.map((h) => [h.ip, h]));
@@ -62,6 +92,8 @@ export function ReconResults({
       const seen = new Set<string>();
       const dedup = relevant.filter((f) => (seen.has(f.id) ? false : seen.add(f.id)));
       return {
+        subId: s.id,
+        hostId: host?.id ?? null,
         subdomain: s.name,
         ip,
         cloudflare: !!s.is_cdn && (s.cdn_name?.toLowerCase().includes("cloudflare") ?? !s.cdn_name),
@@ -89,6 +121,8 @@ export function ReconResults({
       if (h.scan_id && !covered.has(h.ip)) {
         const list = findingsByIp.get(h.ip) ?? [];
         built.push({
+          subId: null,
+          hostId: h.id,
           subdomain: h.hostname ?? h.ip,
           ip: h.ip,
           cloudflare: !!h.is_cdn && (h.cdn_name?.toLowerCase().includes("cloudflare") ?? false),
@@ -111,7 +145,18 @@ export function ReconResults({
     });
   }, [subdomains, hosts, findings]);
 
-  const shown = onlyLive ? rows.filter((r) => r.ip || r.ports.length || r.status) : rows;
+  const filtered = useMemo(() => {
+    let r = onlyLive ? rows.filter((x) => x.ip || x.ports.length || x.status) : rows;
+    if (risk !== "All") {
+      const min = SEV_RANK[risk];
+      r = r.filter((x) => x.findings.some((f) => (SEV_RANK[f.severity] ?? 0) >= min));
+    }
+    const q = query.trim().toLowerCase();
+    if (q) r = r.filter((x) => x.subdomain.toLowerCase().includes(q) || (x.ip ?? "").includes(q));
+    return r;
+  }, [rows, onlyLive, risk, query]);
+
+  const shown = filtered.slice(0, limit);
 
   function exportJson() {
     // Matches the requested shape: [{subdomain, ip, cloudflare, ports, tech, cves}]
@@ -161,11 +206,35 @@ export function ReconResults({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <input
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setLimit(50); }}
+            placeholder="Search IP or subdomain…"
+            className="w-52 rounded-lg border border-white/10 bg-background py-1.5 pl-8 pr-2 text-xs outline-none focus:border-accent/40"
+          />
+          <svg className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.3-4.3m0 0A7.5 7.5 0 105.2 5.2a7.5 7.5 0 0011.5 11.5z" />
+          </svg>
+        </div>
+        <select
+          value={risk}
+          onChange={(e) => { setRisk(e.target.value as typeof risk); setLimit(50); }}
+          className="rounded-lg border border-white/10 bg-background px-2 py-1.5 text-xs outline-none focus:border-accent/40"
+        >
+          <option value="All">All risk</option>
+          <option value="Critical">Critical+</option>
+          <option value="High">High+</option>
+          <option value="Medium">Medium+</option>
+          <option value="Low">Low+</option>
+        </select>
         <label className="flex items-center gap-1.5 text-[11px] text-muted-dim">
           <input type="checkbox" checked={onlyLive} onChange={(e) => setOnlyLive(e.target.checked)} />
-          Resolving / live only
+          Live only
         </label>
-        <span className="text-[11px] text-muted-dim">{shown.length} rows</span>
+        <span className="text-[11px] text-muted-dim">
+          {shown.length} of {filtered.length}
+        </span>
         <div className="ml-auto flex gap-2">
           <button
             onClick={copyJson}
@@ -192,6 +261,7 @@ export function ReconResults({
               <th className="px-3 py-2">Ports</th>
               <th className="px-3 py-2">Tech</th>
               <th className="px-3 py-2">CVEs / findings</th>
+              {assignTargets && assignTargets.length > 0 && <th className="px-3 py-2">Group</th>}
             </tr>
           </thead>
           <tbody>
@@ -265,11 +335,35 @@ export function ReconResults({
                     </div>
                   )}
                 </td>
+                {assignTargets && assignTargets.length > 0 && (
+                  <td className="px-3 py-2">
+                    <select
+                      defaultValue=""
+                      disabled={assigning === (r.subId ?? r.hostId ?? "")}
+                      onChange={(e) => { assign(r, e.target.value); e.target.value = ""; }}
+                      className="rounded-md border border-white/10 bg-background px-1.5 py-1 text-[10px] outline-none focus:border-accent/40"
+                    >
+                      <option value="">→ group…</option>
+                      {assignTargets.map((g) => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {filtered.length > limit && (
+        <button
+          onClick={() => setLimit((l) => l + 50)}
+          className="mx-auto rounded-lg border border-white/10 px-4 py-1.5 text-xs text-muted transition-colors hover:text-foreground"
+        >
+          Load more ({filtered.length - limit} remaining)
+        </button>
+      )}
     </div>
   );
 }

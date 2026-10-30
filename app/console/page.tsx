@@ -54,13 +54,14 @@ export default async function ConsolePage() {
   }
 
   const id = target.id;
-  const [{ data: scopeEntries }, { data: scans }, { data: subdomains }, { data: hosts }, { data: findings }] =
+  const [{ data: scopeEntries }, { data: scans }, { data: subdomains }, { data: hosts }, { data: findings }, { data: groups }] =
     await Promise.all([
       supabase.from("scope_entries").select("*").eq("target_id", id).order("created_at", { ascending: true }),
       supabase.from("scans").select("*").eq("target_id", id).order("created_at", { ascending: false }).limit(25),
       supabase.from("subdomains").select("*").eq("target_id", id).order("created_at", { ascending: false }),
       supabase.from("hosts").select("*").eq("target_id", id),
       supabase.from("findings").select("*").eq("target_id", id).order("created_at", { ascending: false }),
+      supabase.from("targets").select("id, name, category, is_console").order("created_at", { ascending: false }),
     ]);
 
   return (
@@ -82,6 +83,7 @@ export default async function ConsolePage() {
 
         <ConsoleClient
           consoleTargetId={id}
+          groups={groups ?? []}
           scopeEntries={scopeEntries ?? []}
           initialScans={scans ?? []}
           subdomains={subdomains ?? []}
