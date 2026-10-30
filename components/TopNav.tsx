@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ScanProgress } from "@/components/ScanProgress";
 import { signOut } from "@/app/actions";
 
 const LINKS = [
@@ -49,6 +50,7 @@ export function TopNav({ userEmail }: { userEmail: string }) {
 
         {/* Right */}
         <div className="ml-auto flex items-center gap-2">
+          <ScanProgress />
           <ThemeToggle />
           <NotificationBell userEmail={userEmail} />
           <div className="hidden items-center gap-2 rounded-lg border border-white/5 bg-surface px-2.5 py-1.5 lg:flex">

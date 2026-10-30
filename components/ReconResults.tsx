@@ -45,6 +45,19 @@ export function ReconResults({
   onAssigned?: () => void;
 }) {
   const [assigning, setAssigning] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  const rowKey = (r: Row) => `${r.subId ?? ""}|${r.hostId ?? ""}|${r.subdomain}`;
+
+  function toggle(key: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   async function assign(row: Row, targetId: string) {
     if (!targetId) return;
@@ -59,6 +72,28 @@ export function ReconResults({
       await supabase.from("findings").update({ target_id: targetId }).eq("host_id", row.hostId);
     }
     setAssigning(null);
+    onAssigned?.();
+  }
+
+  async function bulkAssign(targetId: string, selectedRows: Row[]) {
+    if (!targetId || selectedRows.length === 0) return;
+    setBulkBusy(true);
+    const supabase = createClient();
+    const subIds = selectedRows.map((r) => r.subId).filter((x): x is string => !!x);
+    const hostIds = selectedRows.map((r) => r.hostId).filter((x): x is string => !!x);
+    const chunk = async (ids: string[], fn: (c: string[]) => PromiseLike<unknown>) => {
+      for (let i = 0; i < ids.length; i += 100) await fn(ids.slice(i, i + 100));
+    };
+    if (subIds.length) {
+      await chunk(subIds, (c) => supabase.from("subdomains").update({ target_id: targetId }).in("id", c));
+      await chunk(subIds, (c) => supabase.from("findings").update({ target_id: targetId }).in("subdomain_id", c));
+    }
+    if (hostIds.length) {
+      await chunk(hostIds, (c) => supabase.from("hosts").update({ target_id: targetId }).in("id", c));
+      await chunk(hostIds, (c) => supabase.from("findings").update({ target_id: targetId }).in("host_id", c));
+    }
+    setBulkBusy(false);
+    setSelected(new Set());
     onAssigned?.();
   }
 
@@ -157,6 +192,7 @@ export function ReconResults({
   }, [rows, onlyLive, risk, query]);
 
   const shown = filtered.slice(0, limit);
+  const hasAssign = !!(assignTargets && assignTargets.length > 0);
 
   function exportJson() {
     // Matches the requested shape: [{subdomain, ip, cloudflare, ports, tech, cves}]
@@ -251,10 +287,45 @@ export function ReconResults({
         </div>
       </div>
 
+      {hasAssign && selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-xs">
+          <span className="font-medium text-accent">{selected.size} selected</span>
+          <select
+            defaultValue=""
+            disabled={bulkBusy}
+            onChange={(e) => {
+              const rows = shown.filter((r) => selected.has(rowKey(r)));
+              bulkAssign(e.target.value, rows);
+              e.target.value = "";
+            }}
+            className="rounded-md border border-white/10 bg-background px-2 py-1 text-[11px] outline-none focus:border-accent/40"
+          >
+            <option value="">{bulkBusy ? "Moving…" : "Move selected → group…"}</option>
+            {assignTargets!.map((g) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
+          <button onClick={() => setSelected(new Set())} className="text-muted-dim hover:text-foreground">
+            Clear
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-xl border border-white/5">
         <table className="w-full min-w-[800px] text-left text-xs">
           <thead className="border-b border-white/5 bg-white/[0.02] text-[10px] uppercase tracking-wide text-muted-dim">
             <tr>
+              {hasAssign && (
+                <th className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={shown.length > 0 && shown.every((r) => selected.has(rowKey(r)))}
+                    onChange={(e) =>
+                      setSelected(e.target.checked ? new Set(shown.map(rowKey)) : new Set())
+                    }
+                  />
+                </th>
+              )}
               <th className="px-3 py-2">Subdomain</th>
               <th className="px-3 py-2">IP</th>
               <th className="px-3 py-2">CDN</th>
@@ -266,7 +337,12 @@ export function ReconResults({
           </thead>
           <tbody>
             {shown.map((r) => (
-              <tr key={r.subdomain + (r.ip ?? "")} className="border-b border-white/[0.03] align-top hover:bg-white/[0.02]">
+              <tr key={rowKey(r)} className="border-b border-white/[0.03] align-top hover:bg-white/[0.02]">
+                {hasAssign && (
+                  <td className="px-3 py-2">
+                    <input type="checkbox" checked={selected.has(rowKey(r))} onChange={() => toggle(rowKey(r))} />
+                  </td>
+                )}
                 <td className="px-3 py-2 font-mono">
                   {r.subdomain}
                   {r.title && <div className="mt-0.5 text-[10px] text-muted-dim">{r.title}</div>}
