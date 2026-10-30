@@ -33,6 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         />
       </head>
       <body className="min-h-full flex flex-col bg-background text-foreground">
+        <div className="aurora" aria-hidden />
         <ThemeProvider>
           {children}
         </ThemeProvider>

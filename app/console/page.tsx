@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { ConsoleClient } from "@/components/ConsoleClient";
+import { TopNav } from "@/components/TopNav";
 
 export const dynamic = "force-dynamic";
 
@@ -64,31 +64,31 @@ export default async function ConsolePage() {
     ]);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-6 px-4 py-6 sm:px-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <Link href="/" className="text-xs text-muted hover:text-foreground">
-              ← Dashboard
-            </Link>
+    <>
+      <TopNav userEmail={user.email ?? ""} />
+      <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-6 px-4 py-6 sm:px-6">
+        <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-surface p-6">
+          <div className="pointer-events-none absolute inset-0 grid-bg opacity-60" />
+          <div className="relative">
+            <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
+              <span>🛰️</span> Scan <span className="gradient-text">Console</span>
+            </h1>
+            <p className="mt-1 max-w-2xl text-xs text-muted">
+              Point the recon VM at any IP or domain — one or many. Active scans (nmap, dir brute, nuclei) run only against
+              the allowlist below. Authorized systems only.
+            </p>
           </div>
-          <h1 className="mt-1 flex items-center gap-2 text-xl font-bold tracking-tight">
-            <span>🛰️</span> Scan Console
-          </h1>
-          <p className="mt-0.5 text-xs text-muted">
-            Point the recon VM at any IP or domain. Active scans run only against the allowlist below — authorized systems only.
-          </p>
         </div>
-      </div>
 
-      <ConsoleClient
-        consoleTargetId={id}
-        scopeEntries={scopeEntries ?? []}
-        initialScans={scans ?? []}
-        subdomains={subdomains ?? []}
-        hosts={hosts ?? []}
-        findings={findings ?? []}
-      />
-    </div>
+        <ConsoleClient
+          consoleTargetId={id}
+          scopeEntries={scopeEntries ?? []}
+          initialScans={scans ?? []}
+          subdomains={subdomains ?? []}
+          hosts={hosts ?? []}
+          findings={findings ?? []}
+        />
+      </div>
+    </>
   );
 }

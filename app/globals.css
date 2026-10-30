@@ -34,6 +34,53 @@ body {
   border-color: var(--color-border);
 }
 
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  color: var(--color-foreground);
+}
+
+/* Fixed aurora backdrop behind all content. */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.aurora::before,
+.aurora::after {
+  content: "";
+  position: absolute;
+  width: 55vw;
+  height: 55vw;
+  border-radius: 9999px;
+  filter: blur(120px);
+  opacity: 0.5;
+}
+.aurora::before {
+  top: -18vw;
+  left: -10vw;
+  background: radial-gradient(circle, var(--color-accent), transparent 65%);
+  animation: aurora-a 22s ease-in-out infinite alternate;
+}
+.aurora::after {
+  bottom: -22vw;
+  right: -12vw;
+  background: radial-gradient(circle, var(--color-fuchsia), transparent 65%);
+  animation: aurora-b 26s ease-in-out infinite alternate;
+}
+.light .aurora::before,
+.light .aurora::after { opacity: 0.22; }
+
+@keyframes aurora-a {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(8vw, 6vw) scale(1.15); }
+}
+@keyframes aurora-b {
+  from { transform: translate(0, 0) scale(1.1); }
+  to { transform: translate(-6vw, -4vw) scale(1); }
+}
+
 .light {
   --color-background: #f8f7fc;
   --color-foreground: #1a1625;
@@ -165,3 +212,41 @@ body {
   100% { transform: scale(1); }
 }
 .animate-count { animation: count-pop .4s ease-out; }
+
+/* Premium buttons. */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  border-radius: 12px; padding: .6rem 1rem; font-size: .8rem; font-weight: 600;
+  border: 1px solid var(--color-border); color: var(--color-foreground);
+  transition: all .18s ease; cursor: pointer; white-space: nowrap;
+}
+.btn:hover { border-color: var(--color-border-strong); background: var(--color-surface-hover); }
+.btn-accent {
+  border: none; color: #fff;
+  background: linear-gradient(120deg, var(--color-accent), var(--color-fuchsia));
+  box-shadow: 0 8px 24px -10px var(--color-accent);
+}
+.btn-accent:hover { filter: brightness(1.08); box-shadow: 0 10px 30px -8px var(--color-accent); }
+.btn-accent:disabled { opacity: .5; cursor: default; filter: none; }
+
+/* Pill badge. */
+.badge {
+  display: inline-flex; align-items: center; gap: .3rem;
+  border-radius: 9999px; padding: .15rem .55rem; font-size: .62rem;
+  font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+  border: 1px solid var(--color-border);
+}
+
+/* Segmented tab bar (pills). */
+.seg { display: inline-flex; gap: .15rem; padding: .2rem; border-radius: 12px; border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-surface) 70%, transparent); }
+.seg-item { border-radius: 9px; padding: .4rem .75rem; font-size: .75rem; font-weight: 500; color: var(--color-muted-dim); transition: all .15s ease; white-space: nowrap; }
+.seg-item:hover { color: var(--color-foreground); }
+.seg-item[data-active="true"] { background: var(--color-accent); color: #fff; box-shadow: 0 4px 14px -6px var(--color-accent); }
+
+/* Inputs, unified. */
+.field {
+  width: 100%; border-radius: 12px; border: 1px solid var(--color-border);
+  background: var(--color-surface); padding: .65rem .9rem; font-size: .85rem;
+  color: var(--color-foreground); outline: none; transition: all .18s ease;
+}
+.field:focus { border-color: color-mix(in srgb, var(--color-accent) 45%, transparent); box-shadow: 0 0 0 3px var(--color-accent-glow); background: var(--color-surface-hover); }
