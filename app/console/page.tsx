@@ -83,6 +83,7 @@ export default async function ConsolePage() {
 
         <ConsoleClient
           consoleTargetId={id}
+          userEmail={user.email ?? ""}
           groups={groups ?? []}
           scopeEntries={scopeEntries ?? []}
           initialScans={scans ?? []}

@@ -180,7 +180,15 @@ class FakeDB:
         return True
 
     def select(self, table, filters, columns="*"):
-        return [dict(r) for r in self.tables[table] if self._match(r, filters)]
+        ctrl = {k: filters[k] for k in ("order", "limit", "offset", "select") if k in filters}
+        flt = {k: v for k, v in filters.items() if k not in ("order", "limit", "offset", "select")}
+        rows = [dict(r) for r in self.tables[table] if self._match(r, flt)]
+        if "order" in ctrl:
+            key, _, direction = ctrl["order"].partition(".")
+            rows.sort(key=lambda r: r.get(key) or "", reverse=direction == "desc")
+        if "limit" in ctrl:
+            rows = rows[: int(ctrl["limit"])]
+        return rows
 
     def insert(self, table, rows, on_conflict=None, ignore_duplicates=False):
         out = []
@@ -358,6 +366,34 @@ def test_passive_mode_never_runs_active(fake_tools):
     assert db.tables["scans"][0]["stages"]["nmap"]["status"] == "skipped"
 
 
+# --- persistent queue (poller) -------------------------------------------------
+def test_poller_claims_oldest_and_counts(monkeypatch):
+    from app import jobs
+
+    db = FakeDB([])
+    for i, ts in enumerate(["2026-01-01", "2026-01-02", "2026-01-03"]):
+        db.tables["scans"].append({
+            "id": f"s{i}", "target_id": "t1", "mode": "passive", "input": "example.com",
+            "status": "queued", "created_at": ts, "stages": {},
+        })
+    wrapper = type("D", (), {"select": db.select, "update": db.update, "close": lambda s=None: None})()
+    monkeypatch.setattr(jobs, "Supabase", lambda: wrapper)
+
+    assert jobs.pending_count() == 3
+    p = jobs.Poller()
+    claimed = p._claim_next()
+    assert claimed["id"] == "s0" and claimed["status"] == "running"  # oldest first
+    # s0 now running, s1/s2 still queued -> 3 pending (queued+running)
+    assert jobs.pending_count() == 3
+    # Claiming again skips the running one and takes the next oldest queued.
+    assert p._claim_next()["id"] == "s1"
+
+    # recover_stale fails running scans but leaves queued ones intact.
+    jobs.recover_stale()
+    statuses = {r["id"]: r["status"] for r in db.tables["scans"]}
+    assert statuses["s0"] == "failed" and statuses["s1"] == "failed" and statuses["s2"] == "queued"
+
+
 # --- API -----------------------------------------------------------------------
 def test_api_secret_and_validation(monkeypatch):
     from fastapi.testclient import TestClient
@@ -372,16 +408,9 @@ def test_api_secret_and_validation(monkeypatch):
     db.tables["scans"].append({"id": sid, "target_id": "t1", "mode": "passive", "input": "example.com",
                                "status": "queued", "stages": {}})
     monkeypatch.setattr(main, "Supabase", lambda: type("D", (), {"select": db.select, "close": lambda self=None: None})())
-    submitted = []
-
-    class Q:
-        def __init__(self, n): pass
-        def start(self): pass
-        def submit(self, row):
-            submitted.append(row["id"])
-            return 0
-
-    monkeypatch.setattr(main, "JobQueue", Q)
+    # Don't start a real polling thread in the test.
+    monkeypatch.setattr(main, "Poller", lambda: type("P", (), {"start": lambda s: None, "stop": lambda s: None, "current": None})())
+    monkeypatch.setattr(main, "pending_count", lambda: 0)
     monkeypatch.setenv("RESULTS_DIR", "/tmp/recon-test")
     main.get_settings.__globals__["_settings"] = None
 
@@ -395,6 +424,5 @@ def test_api_secret_and_validation(monkeypatch):
         assert client.post("/scan", json=mismatch, headers={"X-Worker-Secret": "test-secret"}).status_code == 400
         r = client.post("/scan", json=body, headers={"X-Worker-Secret": "test-secret"})
         assert r.status_code == 202 and r.json()["status"] == "accepted"
-        assert submitted == [sid]
-        assert client.get("/health").json() == {"ok": True}
+        assert client.get("/health").json() == {"ok": True, "pending": 0}
         assert client.get("/docs").status_code == 404

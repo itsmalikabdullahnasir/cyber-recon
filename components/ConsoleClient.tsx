@@ -12,6 +12,7 @@ type GroupLite = Pick<Target, "id" | "name" | "category"> & { is_console?: boole
 
 export function ConsoleClient({
   consoleTargetId,
+  userEmail,
   groups,
   scopeEntries: scopeInit,
   initialScans,
@@ -20,6 +21,7 @@ export function ConsoleClient({
   findings: findingsInit,
 }: {
   consoleTargetId: string;
+  userEmail: string;
   groups: GroupLite[];
   scopeEntries: ScopeEntry[];
   initialScans: Scan[];
@@ -43,7 +45,18 @@ export function ConsoleClient({
   const [subs, setSubs] = useState<Subdomain[]>(subsInit);
   const [hosts, setHosts] = useState<Host[]>(hostsInit);
   const [finds, setFinds] = useState<Finding[]>(findingsInit);
+  const [pending, setPending] = useState(0);
   const scanStatus = useRef<Map<string, string>>(new Map(initialScans.map((s) => [s.id, s.status])));
+
+  const refreshPending = useCallback(async (id: string) => {
+    const supabase = createClient();
+    const { count } = await supabase
+      .from("scans")
+      .select("id", { count: "exact", head: true })
+      .eq("target_id", id)
+      .in("status", ["queued", "running"]);
+    setPending(count ?? 0);
+  }, []);
 
   const loadFor = useCallback(async (id: string) => {
     const supabase = createClient();
@@ -60,7 +73,8 @@ export function ConsoleClient({
     setFinds(f.data ?? []);
     setScopeEntries(scp.data ?? []);
     scanStatus.current = new Map((sc.data ?? []).map((s) => [s.id, s.status]));
-  }, []);
+    refreshPending(id);
+  }, [refreshPending]);
 
   const loadResults = useCallback(async (id: string) => {
     const supabase = createClient();
@@ -102,13 +116,16 @@ export function ConsoleClient({
           if (prev !== row.status && (row.status === "done" || row.status === "running" || row.status === "failed")) {
             loadResults(groupId);
           }
+          refreshPending(groupId);
         },
       )
       .subscribe();
+    const t = setTimeout(() => refreshPending(groupId), 0);
     return () => {
+      clearTimeout(t);
       supabase.removeChannel(channel);
     };
-  }, [groupId, loadResults]);
+  }, [groupId, loadResults, refreshPending]);
 
   const parsed = useMemo(() => parseInput(input), [input]);
   const importable = useMemo(() => parseImport(input), [input]);
@@ -217,6 +234,48 @@ export function ConsoleClient({
     }
   }
 
+  async function scanAllInGroup() {
+    setNotice(null);
+    setBusy(true);
+    try {
+      // Everything scannable in this group: each resolving subdomain, plus
+      // bare hosts (IP-only rows from imports) that have no subdomain.
+      const names = new Set<string>();
+      for (const s of subs) names.add(s.name);
+      const subIps = new Set(subs.map((s) => s.ip).filter(Boolean));
+      for (const h of hosts) if (!subIps.has(h.ip)) names.add(h.ip);
+      const targets = [...names];
+      if (targets.length === 0) {
+        setNotice({ kind: "err", text: "Nothing to scan in this group yet — import or add hosts first." });
+        return;
+      }
+      const supabase = createClient();
+      const rows = targets.map((t) => ({
+        target_id: groupId, input: t, mode: "passive", status: "queued", requested_by_email: userEmail,
+      }));
+      for (let i = 0; i < rows.length; i += 500) {
+        await supabase.from("scans").insert(rows.slice(i, i + 500));
+        setNotice({ kind: "ok", text: `Queueing… ${Math.min(i + 500, rows.length)} / ${rows.length}` });
+      }
+      await refreshPending(groupId);
+      await loadFor(groupId);
+      setNotice({ kind: "ok", text: `Queued ${rows.length} passive scans. They run one at a time — leave it; you'll get a notification per host.` });
+    } catch (e) {
+      setNotice({ kind: "err", text: e instanceof Error ? e.message : "Could not queue scans" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const locked = pending > 0;
+  const scannableCount = useMemo(() => {
+    const names = new Set<string>();
+    for (const s of subs) names.add(s.name);
+    const subIps = new Set(subs.map((s) => s.ip).filter(Boolean));
+    for (const h of hosts) if (!subIps.has(h.ip)) names.add(h.ip);
+    return names.size;
+  }, [subs, hosts]);
+
   const activeScan = scans.find((s) => s.status === "queued" || s.status === "running");
   const selectableGroups = groupList.filter((g) => g.id !== consoleTargetId);
   const assignTargets = groupList.filter((g) => !g.is_console && g.id !== groupId);
@@ -253,6 +312,21 @@ export function ConsoleClient({
           </span>
         </div>
       </div>
+
+      {/* Queue lock banner */}
+      {locked && (
+        <div className="flex items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <svg className="h-4 w-4 animate-spin text-amber-400" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+            <path className="opacity-90" d="M12 2a10 10 0 0110 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          </svg>
+          <div className="text-xs text-amber-200">
+            <b>Queue running — {pending.toLocaleString()} scan{pending === 1 ? "" : "s"} remaining.</b>{" "}
+            Scans run one at a time on the VM. New scans are disabled until this batch finishes; you can keep using the app and
+            you&apos;ll get a notification as each host completes.
+          </div>
+        </div>
+      )}
 
       {/* Launcher */}
       <div className="card p-5">
@@ -292,7 +366,7 @@ export function ConsoleClient({
           </div>
           <button
             onClick={launch}
-            disabled={busy || parsed.length === 0 || (mode === "full" && !authorized)}
+            disabled={busy || locked || parsed.length === 0 || (mode === "full" && !authorized)}
             className="btn btn-accent"
           >
             {busy ? "Working…" : `Run ${Math.min(parsed.length, 50) || ""} scan${Math.min(parsed.length, 50) === 1 ? "" : "s"}`}
@@ -300,6 +374,11 @@ export function ConsoleClient({
           {importable && (
             <button onClick={runImport} disabled={busy} className="btn">
               ⬇ Import {importable.length} hosts (no scan)
+            </button>
+          )}
+          {scannableCount > 0 && (
+            <button onClick={scanAllInGroup} disabled={busy || locked} className="btn" title="Queue a passive scan for every host in this group">
+              ⚡ Scan all {scannableCount.toLocaleString()} in group
             </button>
           )}
           {activeScan && (

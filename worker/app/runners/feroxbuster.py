@@ -5,18 +5,30 @@ from pathlib import Path
 from ..config import get_settings
 from ..proc import ToolError, read_jsonl, run_tool
 
+# Bundled fallback wordlist shipped with the worker (worker/wordlists/common.txt).
+BUNDLED_WORDLIST = Path(__file__).resolve().parent.parent.parent / "wordlists" / "common.txt"
+
+
+def resolve_wordlist() -> Path:
+    s = get_settings()
+    configured = Path(s.wordlist)
+    if configured.exists():
+        return configured
+    if BUNDLED_WORDLIST.exists():
+        return BUNDLED_WORDLIST
+    raise ToolError(f"no wordlist found (tried {s.wordlist} and bundled {BUNDLED_WORDLIST})")
+
 
 def run(url: str, workdir: Path, name: str) -> list[dict]:
     """Return [{path, url, status, length}] for interesting responses."""
     s = get_settings()
-    if not Path(s.wordlist).exists():
-        raise ToolError(f"wordlist not found: {s.wordlist}")
+    wordlist = resolve_wordlist()
     out = workdir / f"ferox-{name}.jsonl"
     result = run_tool(
         [
             s.feroxbuster_bin,
             "-u", url,
-            "-w", s.wordlist,
+            "-w", str(wordlist),
             "--json", "--output", str(out),
             "-t", str(s.ferox_threads),
             "--rate-limit", str(s.ferox_rate_limit),

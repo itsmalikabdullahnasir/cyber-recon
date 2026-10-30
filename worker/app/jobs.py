@@ -1,51 +1,70 @@
-"""One-at-a-time job queue. A single background thread drains it, so only one
-scan ever runs on the 1 GB VM. The queue is in memory: on restart, any scan
-left queued/running is marked failed (see recover_stale)."""
+"""Persistent, strictly-sequential scan queue.
+
+The queue lives in the database: a scan row with status 'queued' is a pending
+job. A single background thread claims the OLDEST queued scan, runs it to
+completion, then claims the next. Because it's one thread pulling from the DB:
+
+- you can enqueue thousands of scans (just insert rows) and they drain one by
+  one, in order, without overwhelming the 1 GB VM;
+- the backlog survives worker restarts (queued rows are still there);
+- a scan interrupted by a restart is marked failed on startup, and the poller
+  moves on to the next queued one.
+"""
 
 import logging
-import queue
+import os
 import threading
+import time
 
 from .pipeline import Pipeline
 from .supa import Supabase, now_iso
 
 log = logging.getLogger(__name__)
 
-
-class QueueFull(Exception):
-    pass
+POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "4"))
 
 
-class JobQueue:
-    def __init__(self, maxsize: int) -> None:
-        self._q: queue.Queue[dict] = queue.Queue(maxsize=maxsize)
-        self._ids: set[str] = set()  # queued or running
-        self._lock = threading.Lock()
-        self._thread = threading.Thread(target=self._loop, name="scan-worker", daemon=True)
+class Poller:
+    def __init__(self) -> None:
+        self._thread = threading.Thread(target=self._loop, name="scan-poller", daemon=True)
+        self._stop = threading.Event()
         self.current: str | None = None
 
     def start(self) -> None:
         self._thread.start()
 
-    def submit(self, scan: dict) -> int:
-        """Enqueue a scan row; returns its position (0 = runs next)."""
-        with self._lock:
-            if scan["id"] in self._ids:
-                return -1
-            try:
-                self._q.put_nowait(scan)
-            except queue.Full:
-                raise QueueFull from None
-            self._ids.add(scan["id"])
-            return self._q.qsize() - 1 + (1 if self.current else 0)
+    def stop(self) -> None:
+        self._stop.set()
 
-    def depth(self) -> int:
-        return self._q.qsize()
+    def _claim_next(self) -> dict | None:
+        """Atomically take the oldest queued scan (queued -> running)."""
+        db = Supabase()
+        try:
+            rows = db.select("scans", {"status": "eq.queued", "order": "created_at.asc", "limit": "1"})
+            if not rows:
+                return None
+            sid = rows[0]["id"]
+            claimed = db.update(
+                "scans",
+                {"id": f"eq.{sid}", "status": "eq.queued"},
+                {"status": "running", "started_at": now_iso()},
+            )
+            return claimed[0] if claimed else None
+        except Exception:
+            log.exception("claim_next failed")
+            return None
+        finally:
+            db.close()
 
     def _loop(self) -> None:
-        while True:
-            scan = self._q.get()
+        log.info("scan poller started (interval %ss)", POLL_INTERVAL)
+        while not self._stop.is_set():
+            scan = self._claim_next()
+            if not scan:
+                self._stop.wait(POLL_INTERVAL)
+                continue
             self.current = scan["id"]
+            log.info("running scan %s (%s %s)", scan["id"], scan.get("mode"), scan.get("input"))
             db = Supabase()
             try:
                 Pipeline(db, scan).run()
@@ -53,20 +72,29 @@ class JobQueue:
                 log.exception("unhandled error in scan %s", scan["id"])
             finally:
                 db.close()
-                with self._lock:
-                    self._ids.discard(scan["id"])
-                    self.current = None
-                self._q.task_done()
+                self.current = None
 
 
 def recover_stale() -> None:
+    """On startup, fail scans left 'running' by a previous crash. Queued ones stay."""
     db = Supabase()
     try:
-        for status in ("queued", "running"):
-            db.update("scans", {"status": f"eq.{status}"},
-                      {"status": "failed", "error": "worker restarted before the scan finished",
-                       "finished_at": now_iso()})
+        db.update(
+            "scans",
+            {"status": "eq.running"},
+            {"status": "failed", "error": "worker restarted before the scan finished", "finished_at": now_iso()},
+        )
     except Exception:
-        log.exception("could not mark stale scans")
+        log.exception("could not reset stale running scans")
+    finally:
+        db.close()
+
+
+def pending_count() -> int:
+    db = Supabase()
+    try:
+        return len(db.select("scans", {"status": "in.(queued,running)"}, "id"))
+    except Exception:
+        return 0
     finally:
         db.close()

@@ -1,7 +1,12 @@
 """Recon worker API.
 
-POST /scan   (X-Worker-Secret required)  -> 202 accepted, scan runs in the background
-GET  /health (no secret)                 -> {"ok": true}; reveals nothing else
+POST /scan   (X-Worker-Secret required)  -> 202 accepted; the DB poller runs it
+GET  /health (no secret)                 -> {"ok": true, "pending": N}
+GET  /queue  (X-Worker-Secret required)  -> {"pending": N, "current": <id|null>}
+
+Scans are queued in the database (status 'queued') and drained strictly one at
+a time by a background poller, so a backlog of thousands is fine and survives
+restarts. This endpoint just validates and confirms the row is queued.
 """
 
 import hmac
@@ -14,25 +19,27 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from .config import get_settings
-from .jobs import JobQueue, QueueFull, recover_stale
+from .jobs import Poller, pending_count, recover_stale
 from .supa import Supabase
 from .validation import InvalidTarget, parse_target
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("worker")
 
-jobs: JobQueue | None = None
+poller: Poller | None = None
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global jobs
+    global poller
     s = get_settings()  # fail fast if env is missing
     s.results_dir.mkdir(parents=True, exist_ok=True)
     recover_stale()
-    jobs = JobQueue(s.queue_max)
-    jobs.start()
+    poller = Poller()
+    poller.start()
     yield
+    if poller:
+        poller.stop()
 
 
 app = FastAPI(title="cyber-recon worker", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
@@ -52,7 +59,12 @@ class ScanRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True}
+    return {"ok": True, "pending": pending_count()}
+
+
+@app.get("/queue", dependencies=[Depends(require_secret)])
+def queue() -> dict:
+    return {"pending": pending_count(), "current": poller.current if poller else None}
 
 
 @app.post("/scan", status_code=202, dependencies=[Depends(require_secret)])
@@ -72,7 +84,7 @@ def scan(req: ScanRequest) -> dict:
     if not rows:
         raise HTTPException(status_code=404, detail="scan not found")
     row = rows[0]
-    if row["status"] != "queued":
+    if row["status"] not in ("queued", "running"):
         raise HTTPException(status_code=409, detail=f"scan is {row['status']}")
     try:
         _, row_target = parse_target(row["input"])
@@ -81,12 +93,6 @@ def scan(req: ScanRequest) -> dict:
     if row_target != normalized or row["mode"] != req.mode:
         raise HTTPException(status_code=400, detail="request does not match the scan row")
 
-    assert jobs is not None
-    try:
-        position = jobs.submit(row)
-    except QueueFull:
-        raise HTTPException(status_code=429, detail="queue full, try later")
-    if position < 0:
-        raise HTTPException(status_code=409, detail="scan already queued")
-    log.info("accepted scan %s (%s %s), position %d", row["id"], row["mode"], normalized, position)
-    return {"status": "accepted", "scan_id": str(req.scan_id), "position": position}
+    # The scan is already queued in the DB; the poller will run it in order.
+    log.info("accepted scan %s (%s %s)", row["id"], row["mode"], normalized)
+    return {"status": "accepted", "scan_id": str(req.scan_id)}
