@@ -146,17 +146,19 @@ export function ConsoleClient({
     try {
       const target = await ensureGroup();
       if (!target) return;
+      const batch = parsed.slice(0, 50);
       const res = await fetch("/api/console", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, targets: parsed, group_id: target, authorize: authorized }),
+        body: JSON.stringify({ mode, targets: batch, group_id: target, authorize: authorized }),
       });
       const data = await res.json();
-      if (res.status === 503 || res.status === 401) {
-        setNotice({ kind: "err", text: data.error });
+      if (!res.ok) {
+        setNotice({ kind: "err", text: data.detail ? `${data.error}: ${data.detail}` : data.error || "Scan request failed" });
       } else {
         const refused = (data.results ?? []).filter((r: { status: string }) => r.status !== "accepted");
         const parts = [`${data.accepted}/${data.total} scan(s) queued`];
+        if (parsed.length > 50) parts.push(`(first 50 of ${parsed.length.toLocaleString()} — Import the rest)`);
         refused.slice(0, 5).forEach((r: { target: string; error?: string }) => parts.push(`✗ ${r.target}: ${r.error}`));
         setNotice({ kind: data.accepted > 0 ? "ok" : "err", text: parts.join(" · ") });
         if (data.accepted > 0) setInput("");
@@ -200,10 +202,13 @@ export function ConsoleClient({
           });
         }
       }
-      for (let i = 0; i < subRows.length; i += 500) await supabase.from("subdomains").insert(subRows.slice(i, i + 500));
+      for (let i = 0; i < subRows.length; i += 500) {
+        await supabase.from("subdomains").insert(subRows.slice(i, i + 500));
+        setNotice({ kind: "ok", text: `Importing… ${Math.min(i + 500, subRows.length)} / ${subRows.length} subdomains` });
+      }
       for (let i = 0; i < hostRows.length; i += 500) await supabase.from("hosts").insert(hostRows.slice(i, i + 500));
       await loadResults(target);
-      setNotice({ kind: "ok", text: `Imported ${subRows.length} subdomains, ${hostRows.length} hosts into this group` });
+      setNotice({ kind: "ok", text: `Imported ${subRows.length} subdomains and ${hostRows.length} hosts into this group` });
       setInput("");
     } catch (e) {
       setNotice({ kind: "err", text: e instanceof Error ? e.message : "Import failed" });
@@ -290,7 +295,7 @@ export function ConsoleClient({
             disabled={busy || parsed.length === 0 || (mode === "full" && !authorized)}
             className="btn btn-accent"
           >
-            {busy ? "Working…" : `Run ${parsed.length || ""} scan${parsed.length === 1 ? "" : "s"}`}
+            {busy ? "Working…" : `Run ${Math.min(parsed.length, 50) || ""} scan${Math.min(parsed.length, 50) === 1 ? "" : "s"}`}
           </button>
           {importable && (
             <button onClick={runImport} disabled={busy} className="btn">
@@ -327,6 +332,14 @@ export function ConsoleClient({
           </label>
         )}
 
+        {parsed.length > 50 && (
+          <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-[11px] text-amber-300">
+            That&apos;s <b>{parsed.length.toLocaleString()}</b> targets. Scanning runs one at a time on your VM, so it&apos;s
+            capped at <b>50 per batch</b>. For a big list like this, click{" "}
+            {importable ? <b>⬇ Import {importable.length.toLocaleString()} hosts</b> : <b>Import</b>} to load them instantly,
+            then scan the ones you care about (select rows → or run a smaller batch).
+          </div>
+        )}
         {notice && (
           <div className={`mt-2 flex flex-col gap-0.5 rounded-lg border px-3 py-2 text-[11px] ${notice.kind === "ok" ? "border-emerald-500/20 bg-emerald-500/8 text-emerald-300" : "border-rose-500/20 bg-rose-500/8 text-rose-300"}`}>
             {notice.text.split(" · ").map((line, i) => <span key={i}>{line}</span>)}
