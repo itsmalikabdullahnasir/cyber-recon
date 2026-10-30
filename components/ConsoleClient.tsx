@@ -187,7 +187,7 @@ export function ConsoleClient({
     }
   }
 
-  async function runImport() {
+  async function runImport(scanAfter: boolean) {
     if (!importable) return;
     setNotice(null);
     setBusy(true);
@@ -219,13 +219,32 @@ export function ConsoleClient({
           });
         }
       }
+      const skipped = importable.length - subRows.length;
+      const newNames = subRows.map((r) => r.name as string);
       for (let i = 0; i < subRows.length; i += 500) {
         await supabase.from("subdomains").insert(subRows.slice(i, i + 500));
-        setNotice({ kind: "ok", text: `Importing… ${Math.min(i + 500, subRows.length)} / ${subRows.length} subdomains` });
+        setNotice({ kind: "ok", text: `Importing… ${Math.min(i + 500, subRows.length)} / ${subRows.length}` });
       }
       for (let i = 0; i < hostRows.length; i += 500) await supabase.from("hosts").insert(hostRows.slice(i, i + 500));
-      await loadResults(target);
-      setNotice({ kind: "ok", text: `Imported ${subRows.length} subdomains and ${hostRows.length} hosts into this group` });
+
+      let queued = 0;
+      if (scanAfter && newNames.length) {
+        const scanRows = newNames.map((n) => ({
+          target_id: target, input: n, mode: "passive", status: "queued", requested_by_email: userEmail,
+        }));
+        for (let i = 0; i < scanRows.length; i += 500) {
+          await supabase.from("scans").insert(scanRows.slice(i, i + 500));
+          setNotice({ kind: "ok", text: `Queueing scans… ${Math.min(i + 500, scanRows.length)} / ${scanRows.length}` });
+        }
+        queued = scanRows.length;
+        await refreshPending(target);
+      }
+
+      await loadFor(target);
+      const parts = [`Imported ${subRows.length} new`];
+      if (skipped > 0) parts.push(`${skipped} already present (skipped)`);
+      if (queued > 0) parts.push(`${queued} passive scans queued — running one at a time`);
+      setNotice({ kind: "ok", text: parts.join(" · ") });
       setInput("");
     } catch (e) {
       setNotice({ kind: "err", text: e instanceof Error ? e.message : "Import failed" });
@@ -372,9 +391,14 @@ export function ConsoleClient({
             {busy ? "Working…" : `Run ${Math.min(parsed.length, 50) || ""} scan${Math.min(parsed.length, 50) === 1 ? "" : "s"}`}
           </button>
           {importable && (
-            <button onClick={runImport} disabled={busy} className="btn">
-              ⬇ Import {importable.length} hosts (no scan)
-            </button>
+            <>
+              <button onClick={() => runImport(true)} disabled={busy || locked} className="btn btn-accent" title="Load these hosts and queue a passive scan for each new one">
+                ⚡ Import &amp; scan {importable.length.toLocaleString()}
+              </button>
+              <button onClick={() => runImport(false)} disabled={busy} className="btn" title="Just load the hosts, don't scan">
+                ⬇ Import {importable.length.toLocaleString()} (no scan)
+              </button>
+            </>
           )}
           {scannableCount > 0 && (
             <button onClick={scanAllInGroup} disabled={busy || locked} className="btn" title="Queue a passive scan for every host in this group">
