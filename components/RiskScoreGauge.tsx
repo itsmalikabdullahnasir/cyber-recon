@@ -57,15 +57,16 @@ export function RiskScoreGauge({
             strokeDasharray={circumference}
             strokeDashoffset={offset}
             style={{
-              filter: `drop-shadow(0 0 6px ${color.glow})`,
+              filter: `drop-shadow(0 0 10px ${color.glow})`,
               animation: "gauge-fill 1s ease-out forwards",
             }}
           />
         </svg>
         {/* Center text */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <div className="pointer-events-none absolute h-14 w-14 rounded-full blur-2xl" style={{ background: color.glow }} aria-hidden />
           <span
-            className="text-2xl font-bold"
+            className="relative text-2xl font-bold"
             style={{ color: color.stroke }}
           >
             {score}%
