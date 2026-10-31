@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from .config import get_settings
 from .jobs import Poller, pending_count, recover_stale
+from .modules.registry import registry_json
 from .supa import Supabase
 from .validation import InvalidTarget, parse_target
 
@@ -65,6 +66,15 @@ def health() -> dict:
 @app.get("/queue", dependencies=[Depends(require_secret)])
 def queue() -> dict:
     return {"pending": pending_count(), "current": poller.current if poller else None}
+
+
+@app.get("/modules", dependencies=[Depends(require_secret)])
+def modules() -> dict:
+    """The dynamic module registry: every scanning module, its category,
+    dependencies, outputs, and whether its tool is installed on this VM, plus
+    the built-in profiles. The frontend reads this instead of hardcoding a
+    module list, so adding a module here surfaces it in the UI automatically."""
+    return registry_json(get_settings())
 
 
 @app.post("/scan", status_code=202, dependencies=[Depends(require_secret)])
