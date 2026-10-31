@@ -73,7 +73,7 @@ export function ScopeManager({
 
       {entries.length === 0 ? (
         <p className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-[11px] text-amber-400">
-          No scope entries yet — only passive scans can run. Add what you are authorized to actively test.
+          No scope entries yet — active workflows will be refused until you add the authorized domains, IPs, or CIDRs here.
         </p>
       ) : (
         <ul className="mb-3 flex flex-col gap-1.5">

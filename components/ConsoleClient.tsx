@@ -229,7 +229,16 @@ export function ConsoleClient({
       });
       const data = await res.json();
       if (!res.ok) {
-        setNotice({ kind: "err", text: data.detail ? `${data.error}: ${data.detail}` : data.error || "Scan request failed" });
+        const resultErrors = (data.results ?? [])
+          .filter((result: { status?: string; target?: string; error?: string }) => result.error)
+          .slice(0, 5)
+          .map((result: { target?: string; error?: string }) => `${result.target ?? "target"}: ${result.error}`);
+        const message = resultErrors.length
+          ? resultErrors.join(" · ")
+          : data.detail
+            ? `${data.error ?? "Scan request failed"}: ${data.detail}`
+            : data.error || "Scan request failed";
+        setNotice({ kind: "err", text: message });
       } else {
         const refused = (data.results ?? []).filter((r: { status: string }) => r.status !== "accepted");
         const parts = [`${data.accepted}/${data.total} scan(s) queued`];
