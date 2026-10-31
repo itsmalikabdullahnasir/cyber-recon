@@ -35,7 +35,6 @@ export function ConsoleClient({
 
   const [input, setInput] = useState("");
   const [bulk, setBulk] = useState(false);
-  const [mode, setMode] = useState<Mode>("passive");
   const [pipelineRegistry, setPipelineRegistry] = useState<ModuleRegistry | null>(null);
   const [pipelineProfiles, setPipelineProfiles] = useState<PipelineProfile[]>([]);
   const [selectedPipeline, setSelectedPipeline] = useState("builtin:basic_passive");
@@ -77,18 +76,17 @@ export function ConsoleClient({
     return selectedPipelineData?.modules.filter((m) => m.enabled).map((m) => names.get(m.id) ?? m.id) ?? [];
   }, [pipelineRegistry, selectedPipelineData]);
 
-  function chooseMode(next: Mode) {
-    setMode(next);
-    setSelectedPipeline(next === "passive" ? "builtin:basic_passive" : "builtin:basic_full");
-  }
+  const selectedMode: Mode = useMemo(() => {
+    const active = selectedPipelineData?.modules.some((module) =>
+      module.enabled && pipelineRegistry?.modules.some((definition) => definition.id === module.id && definition.tier === "active"),
+    );
+    return active ? "full" : "passive";
+  }, [pipelineRegistry, selectedPipelineData]);
 
-  function choosePipeline(value: string) {
+  const workflowRisk = selectedMode === "full" ? "High" : "Low";
+
+  function chooseWorkflow(value: string) {
     setSelectedPipeline(value);
-    const modules = value.startsWith("builtin:")
-      ? pipelineRegistry?.profiles?.[value.slice("builtin:".length)]?.modules ?? []
-      : pipelineProfiles.find((p) => p.id === value)?.modules.map((m) => m.id) ?? [];
-    const active = (pipelineRegistry?.modules ?? []).some((m) => modules.includes(m.id) && m.tier === "active");
-    setMode(active ? "full" : "passive");
   }
 
   const refreshPending = useCallback(async (id: string) => {
@@ -221,7 +219,7 @@ export function ConsoleClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode,
+          mode: selectedMode,
           targets: batch,
           group_id: target,
           authorize: false,
@@ -473,23 +471,22 @@ export function ConsoleClient({
         )}
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <div className="seg">
-            <button onClick={() => chooseMode("passive")} className="seg-item" data-active={mode === "passive"}>Passive</button>
-            <button onClick={() => chooseMode("full")} className="seg-item" data-active={mode === "full"}>Full (active)</button>
-          </div>
-          <label className="flex items-center gap-2 text-[11px] text-muted">
-            <span>Pipeline</span>
+          <label className="flex min-w-0 items-center gap-2 text-[11px] text-muted">
+            <span className="shrink-0">Workflow</span>
             <select
               value={selectedPipeline}
-              onChange={(e) => choosePipeline(e.target.value)}
+              onChange={(e) => chooseWorkflow(e.target.value)}
               className="max-w-[230px] rounded-md border border-white/10 bg-background px-2 py-1.5 text-[11px] outline-none focus:border-accent/40"
             >
               {pipelineRegistry && Object.entries(pipelineRegistry.profiles).map(([key, profile]) => (
-                <option key={`builtin:${key}`} value={`builtin:${key}`}>{profile.name}</option>
+                <option key={`builtin:${key}`} value={`builtin:${key}`}>
+                  {profile.name} · {profile.modules.some((id) => pipelineRegistry.modules.find((m) => m.id === id)?.tier === "active") ? "High risk" : "Low risk"}
+                </option>
               ))}
-              {pipelineProfiles.length > 0 && <option disabled>──────── Saved pipelines ────────</option>}
               {pipelineProfiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>{profile.name}</option>
+                <option key={profile.id} value={profile.id}>
+                  {profile.name} · {profile.modules.some((module) => module.enabled && pipelineRegistry?.modules.find((m) => m.id === module.id)?.tier === "active") ? "High risk" : "Low risk"}
+                </option>
               ))}
             </select>
           </label>
@@ -519,7 +516,8 @@ export function ConsoleClient({
         </div>
 
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-dim">
-          <span>{selectedPipelineData?.name ?? (mode === "passive" ? "Passive" : "Full")}:</span>
+          <span>{selectedPipelineData?.name ?? "Workflow"}:</span>
+          <span className={workflowRisk === "High" ? "text-rose-300" : "text-emerald-300"}>Risk: {workflowRisk}</span>
           <span>{pipelineModuleNames.length ? pipelineModuleNames.join(" → ") : "Loading pipeline modules…"}</span>
         </div>
 
