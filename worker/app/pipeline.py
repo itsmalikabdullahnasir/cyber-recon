@@ -48,6 +48,10 @@ class ScanRefused(Exception):
     pass
 
 
+class ScanCancelled(Exception):
+    pass
+
+
 class Pipeline:
     def __init__(self, db: Supabase, scan: dict) -> None:
         self.db = db
@@ -66,9 +70,21 @@ class Pipeline:
 
     # -- bookkeeping ---------------------------------------------------------
     def stage(self, name: str, status: str, **info) -> None:
+        # Starting a new stage is the checkpoint where we honor a user "stop":
+        # if the row is no longer 'running', the user cancelled it — abort here.
+        if status == "running":
+            self._abort_if_cancelled()
         self.stages[name] = {"status": status, "at": now_iso(), **info}
         log.info("scan %s stage %s %s %s", self.scan_id, name, status, info)
         self.db.update("scans", {"id": f"eq.{self.scan_id}"}, {"stage": name, "stages": self.stages})
+
+    def _abort_if_cancelled(self) -> None:
+        try:
+            rows = self.db.select("scans", {"id": f"eq.{self.scan_id}"}, "status")
+        except Exception:
+            return  # don't let a transient read error abort a good scan
+        if rows and rows[0].get("status") not in ("running", None):
+            raise ScanCancelled()
 
     # -- entry point ---------------------------------------------------------
     def run(self) -> None:
@@ -78,6 +94,12 @@ class Pipeline:
                        f"{self.mode} scan running on the recon VM", self.target_id)
         try:
             self._run()
+        except ScanCancelled:
+            log.info("scan %s cancelled by user", self.scan_id)
+            self.db.update("scans", {"id": f"eq.{self.scan_id}"},
+                           {"status": "failed", "error": "cancelled by user", "finished_at": now_iso(), "stages": self.stages})
+            self.db.notify(self.email, f"⏹️ Scan stopped — {self.scan['input']}", "cancelled by user", self.target_id)
+            return
         except Exception as e:
             log.exception("scan %s failed", self.scan_id)
             self.db.update("scans", {"id": f"eq.{self.scan_id}"},

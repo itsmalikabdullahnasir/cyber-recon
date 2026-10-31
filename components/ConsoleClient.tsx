@@ -46,16 +46,17 @@ export function ConsoleClient({
   const [hosts, setHosts] = useState<Host[]>(hostsInit);
   const [finds, setFinds] = useState<Finding[]>(findingsInit);
   const [pending, setPending] = useState(0);
+  const [failed, setFailed] = useState(0);
   const scanStatus = useRef<Map<string, string>>(new Map(initialScans.map((s) => [s.id, s.status])));
 
   const refreshPending = useCallback(async (id: string) => {
     const supabase = createClient();
-    const { count } = await supabase
-      .from("scans")
-      .select("id", { count: "exact", head: true })
-      .eq("target_id", id)
-      .in("status", ["queued", "running"]);
-    setPending(count ?? 0);
+    const [pend, fail] = await Promise.all([
+      supabase.from("scans").select("id", { count: "exact", head: true }).eq("target_id", id).in("status", ["queued", "running"]),
+      supabase.from("scans").select("id", { count: "exact", head: true }).eq("target_id", id).eq("status", "failed"),
+    ]);
+    setPending(pend.count ?? 0);
+    setFailed(fail.count ?? 0);
   }, []);
 
   const loadFor = useCallback(async (id: string) => {
@@ -309,17 +310,38 @@ export function ConsoleClient({
     setBusy(true);
     try {
       const supabase = createClient();
-      // Cancel every queued scan in this group (a running one finishes on its own).
+      // Cancel queued AND the running scan. The worker checks the row status at
+      // each stage boundary and aborts the one in progress.
       await supabase
         .from("scans")
         .update({ status: "failed", error: "cancelled by user" })
         .eq("target_id", groupId)
-        .eq("status", "queued");
+        .in("status", ["queued", "running"]);
       await refreshPending(groupId);
       await loadFor(groupId);
-      setNotice({ kind: "ok", text: "Queue stopped — pending scans cancelled." });
+      setNotice({ kind: "ok", text: "Stopping — pending cancelled; the running scan stops at its next stage." });
     } catch (e) {
       setNotice({ kind: "err", text: e instanceof Error ? e.message : "Could not stop the queue" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reRunFailed() {
+    setBusy(true);
+    try {
+      const supabase = createClient();
+      // Resume unfinished/failed scans: re-queue them (poller re-runs in order).
+      await supabase
+        .from("scans")
+        .update({ status: "queued", error: null, finished_at: null, started_at: null, stage: null, stages: {} })
+        .eq("target_id", groupId)
+        .eq("status", "failed");
+      await refreshPending(groupId);
+      await loadFor(groupId);
+      setNotice({ kind: "ok", text: "Re-queued failed scans — they resume one at a time." });
+    } catch (e) {
+      setNotice({ kind: "err", text: e instanceof Error ? e.message : "Could not re-run failed scans" });
     } finally {
       setBusy(false);
     }
@@ -528,7 +550,19 @@ export function ConsoleClient({
       {/* Live scans */}
       <div>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">Scan activity {scans.length > 0 && <span className="text-muted-dim">({scans.length})</span>}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold">Scan activity {scans.length > 0 && <span className="text-muted-dim">({scans.length})</span>}</h2>
+            {failed > 0 && (
+              <button
+                onClick={reRunFailed}
+                disabled={busy}
+                className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+                title="Re-queue failed/unfinished scans and resume them"
+              >
+                ↻ Re-run {failed.toLocaleString()} failed
+              </button>
+            )}
+          </div>
           <div className="flex gap-1.5 text-[10px]">
             {([
               ["running", "Running", "border-amber-500/30 bg-amber-500/10 text-amber-300"],
