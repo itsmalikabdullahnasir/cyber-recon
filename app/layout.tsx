@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/lib/ThemeContext";
 import { DotGridBackground } from "@/components/DotGridBackground";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -41,6 +42,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           {children}
         </ThemeProvider>
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
