@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Finding, Host, Subdomain, Target } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
+import { Modal } from "@/components/Modal";
 
 type GroupLite = Pick<Target, "id" | "name">;
 
@@ -568,30 +569,11 @@ function Chip({ children, tone }: { children: ReactNode; tone: "plain" | "cyan" 
 // Popup host card: opens when a result row is clicked. Ports, tech and findings
 // (grouped by severity) for one IP/subdomain, with Esc / click-outside to close.
 function HostCardModal({ row, onClose }: { row: Row; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
-    };
-  }, [onClose]);
-
   const counts = SEV_ORDER.map((sev) => ({ sev, n: row.findings.filter((f) => f.severity === sev).length })).filter((c) => c.n);
   const grouped = SEV_ORDER.map((sev) => ({ sev, items: row.findings.filter((f) => f.severity === sev) })).filter((g) => g.items.length);
 
   return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm sm:p-8"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="animate-fade-in my-auto w-full max-w-3xl overflow-hidden rounded-2xl border border-accent/20 bg-surface shadow-2xl"
-      >
+    <Modal onClose={onClose} ariaLabel={`Host detail for ${row.subdomain}`}>
         {/* header */}
         <div className="relative overflow-hidden border-b border-white/5 p-5">
           <div className="pointer-events-none absolute inset-0 grid-bg opacity-40" />
@@ -704,7 +686,6 @@ function HostCardModal({ row, onClose }: { row: Row; onClose: () => void }) {
             </Section>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

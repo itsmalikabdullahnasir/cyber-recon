@@ -5,6 +5,7 @@ import type { Scan, Host, Subdomain, Finding, Target } from "@/lib/types";
 import { COMMON_PORTS } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { UserAvatar } from "@/components/UserAvatar";
+import { Modal } from "@/components/Modal";
 
 // Ordered pipeline stages, with short labels for the progress chips.
 export const STAGE_ORDER = [
@@ -58,6 +59,7 @@ function scanDuration(scan: Scan): string | null {
 
 export function ScanRow({ scan, assignTargets = [] }: { scan: Scan; assignTargets?: Pick<Target, "id" | "name">[] }) {
   const [busy, setBusy] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [openStage, setOpenStage] = useState<string | null>(null);
   const [details, setDetails] = useState<ScanDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
@@ -155,7 +157,19 @@ export function ScanRow({ scan, assignTargets = [] }: { scan: Scan; assignTarget
   const currentLabel = scan.stage ? STAGE_LABELS[scan.stage] ?? scan.stage : null;
 
   return (
-    <div className={`rounded-xl border p-4 transition-colors ${running ? "border-amber-500/30 bg-amber-500/[0.04]" : "border-white/5 bg-surface"}`}>
+    <div
+      onClick={() => setDetailOpen(true)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setDetailOpen(true);
+        }
+      }}
+      className={`cursor-pointer rounded-xl border p-5 transition-colors hover:border-accent/30 ${running ? "border-amber-500/30 bg-amber-500/[0.04]" : "border-white/5 bg-surface"}`}
+    >
+      {detailOpen && <ScanDetailModal scan={scan} onClose={() => setDetailOpen(false)} />}
       {scan.status === "running" && currentLabel && (
         <div className="mb-2 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5">
           <svg className="h-3.5 w-3.5 animate-spin text-amber-400" viewBox="0 0 24 24" fill="none">
@@ -178,9 +192,9 @@ export function ScanRow({ scan, assignTargets = [] }: { scan: Scan; assignTarget
         >
           {scan.mode}
         </span>
-        <span className="font-mono">{scan.input}</span>
+        <span className="font-mono text-[15px] font-semibold">{scan.input}</span>
         <span
-          className={`rounded px-2 py-1 text-[10px] font-semibold uppercase ${
+          className={`rounded px-2 py-1 text-[11px] font-semibold uppercase ${
             displayStatus === "done"
               ? "text-emerald-400"
               : displayStatus === "stopped"
@@ -194,18 +208,19 @@ export function ScanRow({ scan, assignTargets = [] }: { scan: Scan; assignTarget
         </span>
         <span className="ml-auto flex items-center gap-2">
           {scan.requested_by_email && (
-            <span className="flex items-center gap-1 text-[10px] text-muted-dim" title={`Scanned by ${scan.requested_by_email}`}>
+            <span className="flex items-center gap-1 text-[11px] text-muted-dim" title={`Scanned by ${scan.requested_by_email}`}>
               <UserAvatar name={scan.requested_by_email} size={16} />
               {scan.requested_by_email.split("@")[0]}
             </span>
           )}
-          <span className="text-[10px] text-muted-dim">{new Date(scan.created_at).toLocaleString()}</span>
+          <span className="text-[11px] text-muted-dim">{new Date(scan.created_at).toLocaleString()}</span>
           {assignTargets.length > 0 && (
             <select
               defaultValue=""
               disabled={assigning}
+              onClick={(e) => e.stopPropagation()}
               onChange={(e) => { void assignToGroup(e.target.value); e.target.value = ""; }}
-              className="rounded-md border border-white/10 bg-background px-1.5 py-1 text-[10px] outline-none focus:border-accent/40"
+              className="rounded-md border border-white/10 bg-background px-1.5 py-1 text-[11px] outline-none focus:border-accent/40"
               title="Link this scan and its results to a group"
             >
               <option value="">{assigned ? "Assigned ✓" : "Link to group…"}</option>
@@ -259,9 +274,9 @@ export function ScanRow({ scan, assignTargets = [] }: { scan: Scan; assignTarget
       <div className="mt-2 flex items-center gap-2">
         {(scan.status === "running" || scan.status === "queued") && (
           <button
-            onClick={stop}
+            onClick={(e) => { e.stopPropagation(); void stop(); }}
             disabled={busy}
-            className="rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-200 transition-colors hover:bg-rose-500/20 disabled:opacity-50"
+            className="rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-[11px] font-semibold text-rose-200 transition-colors hover:bg-rose-500/20 disabled:opacity-50"
             title="Stop this scan. A running scan stops at its next stage; the record is kept."
           >
             {busy ? "…" : "■ Stop"}
@@ -269,16 +284,186 @@ export function ScanRow({ scan, assignTargets = [] }: { scan: Scan; assignTarget
         )}
         {(scan.status === "failed" || scan.status === "done") && (
           <button
-            onClick={rerun}
+            onClick={(e) => { e.stopPropagation(); void rerun(); }}
             disabled={busy}
-            className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+            className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
             title={scan.status === "done" ? "Run this scan again" : "Re-queue and resume this scan"}
           >
             {busy ? "…" : scan.status === "done" ? "↻ Re-scan" : "↻ Resume"}
           </button>
         )}
-        {duration && <span className="ml-auto text-[10px] text-muted-dim">⏱ {duration}</span>}
+        {duration && <span className="ml-auto text-[11px] text-muted-dim">⏱ {duration}</span>}
       </div>
+    </div>
+  );
+}
+
+// Full scan detail popup — opens when a scan card is clicked. Reuses the shared
+// <Modal> shell (same one as the host-detail card). Shows the complete stage
+// breakdown (untruncated), pipeline config, result counts and run metadata, and
+// stays live for running scans via a Realtime subscription on the scans row.
+function ScanDetailModal({ scan: initial, onClose }: { scan: Scan; onClose: () => void }) {
+  const [scan, setScan] = useState<Scan>(initial);
+  const [counts, setCounts] = useState<{ hosts: number; subs: number; finds: number } | null>(null);
+
+  // Keep the modal live: running scans push new stages as they complete.
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`scan-detail-${initial.id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "scans", filter: `id=eq.${initial.id}` },
+        (payload) => setScan((prev) => ({ ...prev, ...(payload.new as Scan) })),
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [initial.id]);
+
+  // Result counts (re-pulled when status changes, e.g. once the scan finishes).
+  useEffect(() => {
+    let cancelled = false;
+    const supabase = createClient();
+    Promise.all([
+      supabase.from("hosts").select("id", { count: "exact", head: true }).eq("scan_id", initial.id),
+      supabase.from("subdomains").select("id", { count: "exact", head: true }).eq("scan_id", initial.id),
+      supabase.from("findings").select("id", { count: "exact", head: true }).eq("scan_id", initial.id),
+    ]).then(([h, s, f]) => {
+      if (cancelled) return;
+      setCounts({ hosts: h.count ?? 0, subs: s.count ?? 0, finds: f.count ?? 0 });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initial.id, scan.status]);
+
+  const stages = scan.stages || {};
+  const duration = scanDuration(scan);
+  const cancelled = scan.status === "failed" && /cancel|stopped/i.test(scan.error ?? "");
+  const displayStatus = cancelled ? "stopped" : scan.status;
+  const pipeline = Array.isArray(scan.pipeline) ? scan.pipeline : null;
+  const orderedKeys = STAGE_ORDER.filter((k) => stages[k]);
+  const extraKeys = Object.keys(stages).filter((k) => !STAGE_ORDER.includes(k));
+  const allKeys = [...orderedKeys, ...extraKeys];
+
+  return (
+    <Modal onClose={onClose} ariaLabel={`Scan detail for ${scan.input}`}>
+      {/* header */}
+      <div className="relative overflow-hidden border-b border-white/5 p-5">
+        <div className="pointer-events-none absolute inset-0 grid-bg opacity-40" />
+        <div className="relative flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-accent">Scan detail</p>
+            <h3 className="mt-1 truncate font-mono text-xl font-bold text-foreground">{scan.input}</h3>
+            <p className="mt-0.5 text-xs text-muted-dim">
+              <span className="uppercase">{scan.mode}</span> · {displayStatus}
+              {duration ? ` · ⏱ ${duration}` : ""}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-dim">
+              {scan.requested_by_email && (
+                <span className="flex items-center gap-1">
+                  <UserAvatar name={scan.requested_by_email} size={16} />
+                  {scan.requested_by_email.split("@")[0]}
+                </span>
+              )}
+              <span>{new Date(scan.created_at).toLocaleString()}</span>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-muted hover:text-foreground"
+            title="Close (Esc)"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <div className="max-h-[70vh] space-y-5 overflow-y-auto p-5">
+        {counts && (
+          <div className="grid grid-cols-3 gap-2">
+            <StatMini label="Hosts" value={counts.hosts} />
+            <StatMini label="Subdomains" value={counts.subs} />
+            <StatMini label="Findings" value={counts.finds} />
+          </div>
+        )}
+
+        {pipeline && (
+          <section>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
+              Pipeline ({pipeline.filter((m) => m.enabled).length}/{pipeline.length})
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {pipeline.map((m) => (
+                <span
+                  key={m.id}
+                  className={`rounded border px-2 py-1 text-[11px] ${
+                    m.enabled
+                      ? "border-accent/30 bg-accent/10 text-accent"
+                      : "border-white/10 text-muted-dim line-through"
+                  }`}
+                >
+                  {STAGE_LABELS[m.id] ?? m.id}
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
+            Stages ({allKeys.length})
+          </p>
+          {allKeys.length === 0 ? (
+            <p className="text-xs text-muted-dim">No stage progress recorded yet.</p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {allKeys.map((k) => {
+                const st = stages[k] as Record<string, unknown>;
+                const status = String(st.status ?? "");
+                const at = typeof st.at === "string" ? new Date(st.at).toLocaleTimeString() : null;
+                const meta = Object.entries(st).filter(([mk]) => mk !== "status" && mk !== "at");
+                return (
+                  <div key={k} className="rounded-lg border border-white/5 bg-background/40 p-2.5 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${STATUS_DOT[status] ?? "bg-zinc-600"}`} />
+                      <span className="font-medium">{STAGE_LABELS[k] ?? k}</span>
+                      <span className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-dim">
+                        {status}
+                      </span>
+                      {at && <span className="ml-auto text-[10px] text-muted-dim">{at}</span>}
+                    </div>
+                    {meta.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
+                        {meta.map(([mk, v]) => (
+                          <span key={mk} className="text-[10px] text-muted-dim">
+                            {mk.replace(/_/g, " ")}: <span className="text-foreground">{formatStageValue(v)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {scan.error && (
+          <p className={`text-[11px] ${cancelled ? "text-muted-dim" : "text-danger"}`}>{scan.error}</p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function StatMini({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-white/5 bg-background/40 px-3 py-2">
+      <p className="text-lg font-bold text-foreground">{value}</p>
+      <p className="text-[10px] uppercase tracking-wide text-muted-dim">{label}</p>
     </div>
   );
 }
@@ -324,7 +509,10 @@ function StageDetail({
   const meta = Object.entries(stage).filter(([k]) => k !== "status" && k !== "at");
 
   return (
-    <div className="mt-2 rounded-lg border border-accent/20 bg-accent/[0.04] p-3 text-[11px]">
+    <div
+      onClick={(e) => e.stopPropagation()}
+      className="mt-2 rounded-lg border border-accent/20 bg-accent/[0.04] p-3 text-[11px]"
+    >
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 font-semibold">
           <span className={`inline-block h-1.5 w-1.5 rounded-full ${STATUS_DOT[status] ?? "bg-zinc-600"}`} />
