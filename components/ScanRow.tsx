@@ -39,8 +39,25 @@ function stageCount(st: Record<string, unknown>): number | undefined {
 
 export function ScanRow({ scan }: { scan: Scan }) {
   const stages = scan.stages || {};
+  const running = scan.status === "running" || scan.status === "queued";
+  const stageKeys = STAGE_ORDER.filter((k) => stages[k]);
+  const doneStages = stageKeys.filter((k) => ["done", "skipped", "refused"].includes(stages[k].status)).length;
+  const currentLabel = scan.stage ? STAGE_LABELS[scan.stage] ?? scan.stage : null;
+
   return (
-    <div className="rounded-xl border border-white/5 bg-surface p-3">
+    <div className={`rounded-xl border p-3 transition-colors ${running ? "border-amber-500/30 bg-amber-500/[0.04]" : "border-white/5 bg-surface"}`}>
+      {scan.status === "running" && currentLabel && (
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5">
+          <svg className="h-3.5 w-3.5 animate-spin text-amber-400" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+            <path className="opacity-90" d="M12 2a10 10 0 0110 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          </svg>
+          <span className="text-[11px] font-medium text-amber-200">Now: {currentLabel}</span>
+          {stageKeys.length > 0 && (
+            <span className="ml-auto text-[10px] text-amber-300/70">stage {doneStages}/{stageKeys.length}</span>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span
           className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase ${

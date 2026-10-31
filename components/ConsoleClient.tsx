@@ -445,6 +445,17 @@ export function ConsoleClient({
           {mode === "full" && <span className="text-rose-400/80">→ nmap → testssl → dir brute → nuclei</span>}
         </div>
 
+        <details className="group mt-2">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] text-muted-dim hover:text-foreground">
+            <span className="transition-transform group-open:rotate-90">▸</span> What do the scan modes mean?
+          </summary>
+          <div className="mt-2 flex flex-col gap-1.5 rounded-lg border border-white/5 bg-white/[0.02] p-3 text-[11px] text-muted">
+            <p><span className="font-semibold text-indigo-300">Passive</span> — read-only recon: finds subdomains, resolves DNS, probes HTTP, fingerprints the tech stack, and matches known CVEs by version. Safe on anything.</p>
+            <p><span className="font-semibold text-accent">Enrich</span> — a faster Passive for hosts you already have (used by bulk Import &amp; Scan). Skips subdomain discovery and just enriches each host: DNS + HTTP + tech + CVE. ~3s each instead of ~30s.</p>
+            <p><span className="font-semibold text-rose-300">Full</span> — Passive plus <span className="text-rose-300">active attacks</span>: nmap port scan, TLS audit, directory brute-force, and nuclei vulnerability templates. Requires the authorization checkbox.</p>
+          </div>
+        </details>
+
         {mode === "full" && (
           <label className="mt-3 flex items-start gap-2 rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-[11px] text-rose-200">
             <input
