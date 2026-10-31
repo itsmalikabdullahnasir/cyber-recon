@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ScanProgress } from "@/components/ScanProgress";
 import { ProfileMenu } from "@/components/ProfileMenu";
+import { WorkerStatus } from "@/components/WorkerStatus";
 
 const LINKS = [
   { href: "/", label: "Dashboard", icon: "◆" },
@@ -51,6 +52,7 @@ export function TopNav({ userEmail }: { userEmail: string }) {
         {/* Right */}
         <div className="ml-auto flex items-center gap-2">
           <ScanProgress />
+          <WorkerStatus />
           <NotificationBell userEmail={userEmail} />
           <ProfileMenu userEmail={userEmail} />
         </div>

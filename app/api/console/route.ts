@@ -114,7 +114,24 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data: scan, error: scanErr } = await supabase
+    const { data: scan, error: duplicateErr } = await supabase
+      .from("scans")
+      .select("id")
+      .eq("target_id", consoleTargetId)
+      .eq("input", parsed.value)
+      .in("status", ["queued", "running"])
+      .limit(1)
+      .maybeSingle();
+    if (scan) {
+      results.push({ target: parsed.value, status: "duplicate", scan_id: scan.id, error: "already queued or running" });
+      continue;
+    }
+    if (duplicateErr) {
+      results.push({ target: parsed.value, status: "error", error: duplicateErr.message });
+      continue;
+    }
+
+    const { data: createdScan, error: scanErr } = await supabase
       .from("scans")
       .insert({
         target_id: consoleTargetId,
@@ -127,7 +144,7 @@ export async function POST(request: Request) {
       })
       .select("id")
       .single();
-    if (scanErr || !scan) {
+    if (scanErr || !createdScan) {
       results.push({ target: parsed.value, status: "error", error: scanErr?.message ?? "insert failed" });
       continue;
     }
@@ -136,20 +153,20 @@ export async function POST(request: Request) {
       const res = await fetch(`${workerUrl.replace(/\/$/, "")}/scan`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Worker-Secret": workerSecret },
-        body: JSON.stringify({ target: parsed.value, scan_id: scan.id, mode: itemMode, pipeline }),
+        body: JSON.stringify({ target: parsed.value, scan_id: createdScan.id, mode: itemMode, pipeline }),
         signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) {
         const detail = (await res.text().catch(() => "")).slice(0, 200);
-        await supabase.from("scans").update({ status: "failed", error: `Worker: ${res.status} ${detail}` }).eq("id", scan.id);
-        results.push({ target: parsed.value, status: "worker_error", scan_id: scan.id, error: detail });
+        await supabase.from("scans").update({ status: "failed", error: `Worker: ${res.status} ${detail}` }).eq("id", createdScan.id);
+        results.push({ target: parsed.value, status: "worker_error", scan_id: createdScan.id, error: detail });
       } else {
-        results.push({ target: parsed.value, status: "accepted", scan_id: scan.id });
+        results.push({ target: parsed.value, status: "accepted", scan_id: createdScan.id });
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : "unreachable";
-      await supabase.from("scans").update({ status: "failed", error: `Worker unreachable: ${message}` }).eq("id", scan.id);
-      results.push({ target: parsed.value, status: "worker_unreachable", scan_id: scan.id, error: message });
+      await supabase.from("scans").update({ status: "failed", error: `Worker unreachable: ${message}` }).eq("id", createdScan.id);
+      results.push({ target: parsed.value, status: "worker_unreachable", scan_id: createdScan.id, error: message });
     }
   }
 

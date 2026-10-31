@@ -60,6 +60,8 @@ export function ConsoleClient({
   const [selectAllMembers, setSelectAllMembers] = useState(false);
   const [excludedMembers, setExcludedMembers] = useState<Set<string>>(new Set());
   const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberFilter, setMemberFilter] = useState<"all" | "scanned" | "unscanned">("all");
   const [pending, setPending] = useState<number | null>(null);
   const [failed, setFailed] = useState<number | null>(null);
   const [statusCounts, setStatusCounts] = useState({ queued: null as number | null, running: null as number | null, done: null as number | null, failed: null as number | null, total: null as number | null });
@@ -654,6 +656,14 @@ export function ConsoleClient({
     }
     return result;
   }, [scans]);
+  const filteredMembers = useMemo(() => {
+    const query = memberSearch.trim().toLowerCase();
+    return members.filter((member) => {
+      if (query && !member.value.toLowerCase().includes(query)) return false;
+      const scanned = memberLastScan.has(member.value);
+      return memberFilter === "all" || (memberFilter === "scanned" ? scanned : !scanned);
+    });
+  }, [memberFilter, memberLastScan, memberSearch, members]);
   const [skipRecent, setSkipRecent] = useState(false);
   const memberSelectRef = useRef<HTMLInputElement>(null);
   const selectedMemberCount = selectAllMembers ? Math.max(memberCount - excludedMembers.size, 0) : selectedMembers.size;
@@ -672,12 +682,27 @@ export function ConsoleClient({
         .filter((member) => all || (selectAllMembers ? !excludedMembers.has(member.value) : selectedMembers.has(member.value)))
         .map((member) => member.value)
         .filter((value) => !recent.has(value));
+      if (values.length > 100 && !confirm(`Queue ${values.length.toLocaleString()} scans in batches of 50? The worker processes one scan at a time.`)) return;
       await scanMembers(values);
     } catch (error) {
       setNotice({ kind: "err", text: error instanceof Error ? error.message : "Could not prepare group scan" });
     } finally {
       setBusy(false);
     }
+  };
+  const exportMembers = () => {
+    const payload = members.map((member) => ({
+      value: member.value,
+      kind: member.kind,
+      last_scanned: memberLastScan.get(member.value) ?? null,
+    }));
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${groupList.find((group) => group.id === groupId)?.name ?? "engagement-group"}-members.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
   const selectableGroups = groupList.filter((g) => g.id !== consoleTargetId);
   const assignTargets = groupList.filter((g) => !g.is_console && g.id !== groupId);
@@ -864,6 +889,24 @@ export function ConsoleClient({
                 </p>
               </div>
               <div className="flex items-center gap-2">
+                <input
+                  value={memberSearch}
+                  onChange={(event) => setMemberSearch(event.target.value)}
+                  placeholder="Filter members"
+                  className="w-28 rounded-md border border-white/10 bg-background px-2 py-1 text-[10px] outline-none focus:border-accent/40"
+                />
+                <select
+                  value={memberFilter}
+                  onChange={(event) => setMemberFilter(event.target.value as typeof memberFilter)}
+                  className="rounded-md border border-white/10 bg-background px-2 py-1 text-[10px] outline-none"
+                >
+                  <option value="all">All</option>
+                  <option value="unscanned">Not scanned</option>
+                  <option value="scanned">Scanned</option>
+                </select>
+                <button type="button" onClick={exportMembers} className="rounded-md border border-white/10 px-2 py-1 text-[10px] text-muted-dim hover:bg-white/5">
+                  Export
+                </button>
                 <label className="flex items-center gap-1.5 text-[10px] text-muted-dim">
                   <input type="checkbox" checked={skipRecent} onChange={(e) => setSkipRecent(e.target.checked)} />
                   Skip scanned in last 24h
@@ -890,7 +933,7 @@ export function ConsoleClient({
             </div>
             {memberError && <p className="mb-2 text-[10px] text-rose-300">Could not load members: {memberError}</p>}
             <div className="grid max-h-56 gap-1 overflow-y-auto md:grid-cols-2">
-              {members.map((member) => {
+              {filteredMembers.map((member) => {
                 const last = memberLastScan.get(member.value);
                 const checked = selectAllMembers ? !excludedMembers.has(member.value) : selectedMembers.has(member.value);
                 return (
@@ -924,6 +967,7 @@ export function ConsoleClient({
                 );
               })}
             </div>
+            {!filteredMembers.length && <p className="py-3 text-center text-[10px] text-muted-dim">No members match this filter.</p>}
             {memberHasMore && (
               <button
                 type="button"
