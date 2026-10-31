@@ -9,6 +9,8 @@ import { FilterChips } from "@/components/FilterChips";
 import { RiskScoreGauge } from "@/components/RiskScoreGauge";
 import { Donut, AreaChart, BarList } from "@/components/charts";
 import { ScanRow } from "@/components/ScanRow";
+import { EncryptButton } from "@/components/EncryptButton";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -44,6 +46,7 @@ export function DashboardClient({
   const [scans, setScans] = useState<Scan[]>(scansInit);
   const [toasts, setToasts] = useState<{ id: string; text: string; kind: "ok" | "err" }[]>([]);
   const scanStatus = useRef<Map<string, string>>(new Map(scansInit.map((s) => [s.id, s.status])));
+  const router = useRouter();
 
   function pushToast(kind: "ok" | "err", text: string) {
     const id = Math.random().toString(36).slice(2);
@@ -174,12 +177,7 @@ export function DashboardClient({
               )}
             </p>
           </div>
-          <Link
-            href="/console"
-            className="relative rounded-xl border border-accent/30 bg-accent/15 px-4 py-2.5 text-sm font-semibold text-accent transition-all hover:bg-accent/25 hover:shadow-[0_0_24px_var(--color-accent-glow)]"
-          >
-            🛰️ Launch a scan
-          </Link>
+          <EncryptButton text="Launch a scan" onClick={() => router.push("/console")} />
         </div>
       </div>
 
@@ -193,7 +191,7 @@ export function DashboardClient({
 
       {/* Charts */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <div className="card p-5">
+        <div className="card card-hover p-5">
           <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Findings by severity</p>
           <div className="flex items-center gap-5">
             <Donut data={severityData.filter((d) => d.value > 0)} centerValue={findings.length} centerLabel="findings" />
@@ -203,7 +201,7 @@ export function DashboardClient({
           </div>
         </div>
 
-        <div className="card p-5">
+        <div className="card card-hover p-5">
           <div className="mb-3 flex items-center justify-between">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Scan activity · 14d</p>
             <span className="text-[10px] text-muted-dim">{scans.length} total</span>
@@ -214,7 +212,7 @@ export function DashboardClient({
           </p>
         </div>
 
-        <div className="card flex items-center justify-center p-5">
+        <div className="card card-hover flex items-center justify-center p-5">
           <RiskScoreGauge score={riskScore} label="risk score" />
         </div>
       </div>
@@ -361,7 +359,7 @@ function KpiCard({
         {live && <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400 text-amber-400" />}
       </div>
       <div className="mt-1.5 flex items-end justify-between gap-2">
-        <span className={`text-3xl font-bold tabular-nums ${accent ? "text-rose-400" : ""}`} style={accent ? undefined : { color }}>
+        <span className={`animate-count text-3xl font-bold tabular-nums ${accent ? "text-rose-400" : ""}`} style={accent ? undefined : { color }}>
           {value}
         </span>
         <div className="h-8 w-20 opacity-80">

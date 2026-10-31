@@ -250,3 +250,48 @@ body {
   color: var(--color-foreground); outline: none; transition: all .18s ease;
 }
 .field:focus { border-color: color-mix(in srgb, var(--color-accent) 45%, transparent); box-shadow: 0 0 0 3px var(--color-accent-glow); background: var(--color-surface-hover); }
+
+/* ---- Encrypt button (scramble-on-hover) ------------------------------- */
+.encrypt-btn {
+  position: relative; overflow: hidden; isolation: isolate;
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  border-radius: 12px; padding: .6rem 1.1rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: .8rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  border: 1px solid var(--color-border-strong);
+  background: color-mix(in srgb, var(--color-surface) 80%, transparent);
+  color: var(--color-muted); cursor: pointer; white-space: nowrap;
+  transition: transform .15s ease, color .25s ease, border-color .25s ease;
+}
+.encrypt-btn:hover { color: var(--color-foreground); border-color: var(--color-accent); transform: scale(1.03); }
+.encrypt-btn:active { transform: scale(.97); }
+.encrypt-btn:disabled { opacity: .5; cursor: default; transform: none; }
+.encrypt-btn__label { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: .5rem; }
+.encrypt-btn__sweep {
+  position: absolute; inset: 0; z-index: 0; scale: 1.25; opacity: 0;
+  background: linear-gradient(to top, transparent 40%, color-mix(in srgb, var(--color-accent) 92%, white) 50%, transparent 60%);
+  transition: opacity .3s ease;
+}
+.encrypt-btn:hover .encrypt-btn__sweep { opacity: 1; animation: encrypt-sweep 1s linear infinite; }
+@keyframes encrypt-sweep { from { transform: translateY(100%); } to { transform: translateY(-100%); } }
+
+/* ---- Interactive dot-grid backdrop (mounted app-wide in layout) -------- */
+.dotgrid { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+.dotgrid__layer, .dotgrid__glow {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(circle at center, var(--dot-color, rgba(168, 85, 247, .55)) 1px, transparent 1.6px);
+  background-size: 26px 26px;
+}
+.dotgrid__layer { opacity: .16; }
+.dotgrid__glow {
+  --dot-color: color-mix(in srgb, var(--color-accent) 85%, white);
+  opacity: .9;
+  -webkit-mask-image: radial-gradient(circle 150px at var(--mx, -999px) var(--my, -999px), #000 0%, transparent 75%);
+  mask-image: radial-gradient(circle 150px at var(--mx, -999px) var(--my, -999px), #000 0%, transparent 75%);
+}
+.dotgrid__ripple {
+  position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  border-radius: 9999px; border: 1px solid color-mix(in srgb, var(--color-accent) 80%, white);
+  opacity: .75; transform: scale(0); animation: dotgrid-ripple 900ms ease-out forwards;
+}
+@keyframes dotgrid-ripple { to { transform: scale(26); opacity: 0; } }
