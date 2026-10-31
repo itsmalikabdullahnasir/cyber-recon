@@ -1,16 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Subdomain } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 
 export function SubdomainsTab({
   targetId,
   subdomains,
+  totalCount,
 }: {
   targetId: string;
   subdomains: Subdomain[];
+  totalCount: number;
 }) {
+  const [rows, setRows] = useState(subdomains);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [adding, setAdding] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
   const [name, setName] = useState("");
@@ -65,14 +69,28 @@ export function SubdomainsTab({
     window.location.reload();
   }
 
-  const filtered = filter === "All" ? subdomains : subdomains.filter((s) => s.status === filter);
+  const filtered = useMemo(() => filter === "All" ? rows : rows.filter((s) => s.status === filter), [filter, rows]);
+  async function loadMore() {
+    if (loadingMore || rows.length >= totalCount) return;
+    setLoadingMore(true);
+    const supabase = createClient();
+    const { data, error: loadError } = await supabase
+      .from("subdomains")
+      .select("*")
+      .eq("target_id", targetId)
+      .order("created_at", { ascending: false })
+      .range(rows.length, rows.length + 199);
+    if (loadError) setError(loadError.message);
+    else setRows((current) => [...current, ...(data ?? [])]);
+    setLoadingMore(false);
+  }
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <p className="text-[11px] font-medium text-muted-dim">
-            {subdomains.length} subdomain{subdomains.length !== 1 ? "s" : ""}
+            {totalCount.toLocaleString()} subdomain{totalCount !== 1 ? "s" : ""}
           </p>
           <div className="flex gap-1">
             {(["All", "Active", "Inactive", "Unknown"] as const).map((f) => (
@@ -155,6 +173,16 @@ export function SubdomainsTab({
             </div>
           ))}
         </div>
+      )}
+      {rows.length < totalCount && (
+        <button
+          type="button"
+          onClick={() => void loadMore()}
+          disabled={loadingMore}
+          className="rounded-lg border border-white/10 px-3 py-2 text-xs text-muted hover:bg-surface-hover disabled:opacity-50"
+        >
+          {loadingMore ? "Loading…" : `Load more (${rows.length.toLocaleString()} of ${totalCount.toLocaleString()})`}
+        </button>
       )}
     </div>
   );

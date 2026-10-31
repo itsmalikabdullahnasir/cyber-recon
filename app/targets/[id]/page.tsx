@@ -37,11 +37,15 @@ export default async function TargetDetailPage({
     .eq("target_id", id)
     .order("created_at", { ascending: false });
 
-  const { data: subdomains } = await supabase
-    .from("subdomains")
-    .select("*")
-    .eq("target_id", id)
-    .order("created_at", { ascending: false });
+  const [{ data: subdomains }, { count: subdomainCount }] = await Promise.all([
+    supabase
+      .from("subdomains")
+      .select("*")
+      .eq("target_id", id)
+      .order("created_at", { ascending: false })
+      .range(0, 199),
+    supabase.from("subdomains").select("id", { count: "exact", head: true }).eq("target_id", id),
+  ]);
 
   const { data: scopeEntries } = await supabase
     .from("scope_entries")
@@ -74,6 +78,7 @@ export default async function TargetDetailPage({
         hosts={hosts ?? []}
         findings={findings ?? []}
         subdomains={subdomains ?? []}
+        subdomainCount={subdomainCount ?? 0}
         scopeEntries={scopeEntries ?? []}
         scans={scans ?? []}
       />

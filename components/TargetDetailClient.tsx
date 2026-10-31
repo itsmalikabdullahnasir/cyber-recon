@@ -29,9 +29,10 @@ import {
 type Tab = "hosts" | "findings" | "notes" | "overview" | "subdomains" | "shodan" | "cvss" | "recon" | "security" | "infra" | "vm";
 
 export function TargetDetailClient({
-  target, hosts, findings, subdomains, scopeEntries, scans,
+  target, hosts, findings, subdomains, subdomainCount, scopeEntries, scans,
 }: {
   target: Target; hosts: Host[]; findings: Finding[]; subdomains: Subdomain[];
+  subdomainCount: number;
   scopeEntries: ScopeEntry[]; scans: Scan[];
 }) {
   const [tab, setTab] = useState<Tab>("overview");
@@ -39,7 +40,7 @@ export function TargetDetailClient({
   const tabs: { id: Tab; label: string; icon: string; count?: number }[] = [
     { id: "overview", label: "Overview", icon: "📊" },
     { id: "vm", label: "Recon VM", icon: "🛰️" },
-    { id: "subdomains", label: "Subdomains", icon: "🌐", count: subdomains.length },
+    { id: "subdomains", label: "Subdomains", icon: "🌐", count: subdomainCount },
     { id: "hosts", label: "Hosts", icon: "🖥️", count: hosts.length },
     { id: "findings", label: "Findings", icon: "🐛", count: findings.length },
     { id: "shodan", label: "Shodan", icon: "🔍" },
@@ -143,7 +144,7 @@ export function TargetDetailClient({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <div className="rounded-xl border border-white/5 bg-surface p-4 transition-all hover:border-white/8">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Subdomains</p>
-            <p className="mt-2 text-3xl font-bold">{subdomains.length}</p>
+            <p className="mt-2 text-3xl font-bold">{subdomainCount.toLocaleString()}</p>
           </div>
           <div className="rounded-xl border border-white/5 bg-surface p-4 transition-all hover:border-white/8">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Hosts</p>
@@ -197,7 +198,7 @@ export function TargetDetailClient({
         </div>
       )}
 
-      {tab === "subdomains" && <SubdomainsTab targetId={target.id} subdomains={subdomains} />}
+      {tab === "subdomains" && <SubdomainsTab targetId={target.id} subdomains={subdomains} totalCount={subdomainCount} />}
       {tab === "hosts" && <HostsTab targetId={target.id} hosts={hosts} />}
       {tab === "findings" && <FindingsTab targetId={target.id} hosts={hosts} findings={findings} />}
       {tab === "shodan" && <ShodanPanel targetId={target.id} targetName={target.name} />}
