@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { ScopeManager } from "@/components/ScopeManager";
 import { ReconResults } from "@/components/ReconResults";
 import { ScanRow } from "@/components/ScanRow";
+import { parseTarget } from "@/lib/target";
 
 type Mode = "passive" | "full";
 type GroupLite = Pick<Target, "id" | "name" | "category"> & { is_console?: boolean };
@@ -40,6 +41,7 @@ export function ConsoleClient({
   const [selectedPipeline, setSelectedPipeline] = useState("builtin:basic_passive");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [scopeActionBusy, setScopeActionBusy] = useState(false);
 
   const [scopeEntries, setScopeEntries] = useState<ScopeEntry[]>(scopeInit);
   const [scans, setScans] = useState<Scan[]>(initialScans);
@@ -192,6 +194,37 @@ export function ConsoleClient({
     setNewGroup("");
     setGroupId(data.id);
     return data.id;
+  }
+
+  async function addEnteredTargetToScopeAndRetry() {
+    const target = parseTarget(parsed[0] ?? "");
+    if (!target || groupId === "__new__") {
+      setNotice({ kind: "err", text: "Create or select an engagement group before adding scope." });
+      return;
+    }
+    setScopeActionBusy(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.from("scope_entries").upsert(
+        {
+          target_id: groupId,
+          kind: target.kind === "ip" ? "ip" : "domain",
+          value: target.value,
+          note: "added before active workflow run",
+        },
+        { onConflict: "target_id,kind,value", ignoreDuplicates: true },
+      );
+      if (error) throw new Error(error.message);
+      setScopeEntries((entries) => [
+        ...entries,
+        { id: `pending-${target.value}`, target_id: groupId, kind: target.kind, value: target.value, note: "added before active workflow run", created_at: new Date().toISOString() },
+      ]);
+      await launch();
+    } catch (e) {
+      setNotice({ kind: "err", text: `Could not add target to authorized scope: ${e instanceof Error ? e.message : "unknown error"}` });
+    } finally {
+      setScopeActionBusy(false);
+    }
   }
 
   async function launch() {
@@ -550,8 +583,18 @@ export function ConsoleClient({
           </div>
         )}
         {notice && (
-          <div className={`mt-2 flex flex-col gap-0.5 rounded-lg border px-3 py-2 text-[11px] ${notice.kind === "ok" ? "border-emerald-500/20 bg-emerald-500/8 text-emerald-300" : "border-rose-500/20 bg-rose-500/8 text-rose-300"}`}>
+          <div className={`mt-2 flex flex-col gap-2 rounded-lg border px-3 py-2 text-[11px] ${notice.kind === "ok" ? "border-emerald-500/20 bg-emerald-500/8 text-emerald-300" : "border-rose-500/20 bg-rose-500/8 text-rose-300"}`}>
             {notice.text.split(" · ").map((line, i) => <span key={i}>{line}</span>)}
+            {notice.kind === "err" && selectedMode === "full" && groupId !== "__new__" && (
+              <button
+                type="button"
+                onClick={() => void addEnteredTargetToScopeAndRetry()}
+                disabled={scopeActionBusy || busy}
+                className="w-fit rounded-md border border-rose-300/30 bg-rose-500/15 px-2.5 py-1.5 text-[10px] font-semibold text-rose-100 hover:bg-rose-500/25 disabled:opacity-50"
+              >
+                {scopeActionBusy ? "Adding scope…" : "Add entered target to scope and retry"}
+              </button>
+            )}
           </div>
         )}
       </div>
