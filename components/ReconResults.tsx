@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Finding, Host, Subdomain, Target } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 
@@ -152,7 +152,7 @@ export function ReconResults({
   const [query, setQuery] = useState("");
   const [risk, setRisk] = useState<"All" | "Critical" | "High" | "Medium" | "Low">("All");
   const [limit, setLimit] = useState(50);
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [modalRow, setModalRow] = useState<Row | null>(null);
 
   const rows = useMemo<Row[]>(() => {
     const hostByIp = new Map(hosts.map((h) => [h.ip, h]));
@@ -401,12 +401,15 @@ export function ReconResults({
           <tbody>
             {shown.map((r) => {
               const key = rowKey(r);
-              const isExpanded = expandedKey === key;
               return (
               <Fragment key={key}>
-              <tr key={key} className="border-b border-white/[0.03] align-top hover:bg-white/[0.02]">
+              <tr
+                key={key}
+                onClick={() => setModalRow(r)}
+                className="cursor-pointer border-b border-white/[0.03] align-top transition-colors hover:bg-accent/[0.06]"
+              >
                 {hasAssign && (
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={selected.has(rowKey(r))} onChange={() => toggle(rowKey(r))} />
                   </td>
                 )}
@@ -495,18 +498,17 @@ export function ReconResults({
                       {r.findings.length > 8 && (
                         <button
                           type="button"
-                          onClick={() => setExpandedKey(isExpanded ? null : key)}
+                          onClick={(e) => { e.stopPropagation(); setModalRow(r); }}
                           className="mt-1 w-fit rounded-md border border-accent/20 bg-accent/10 px-2 py-1 text-left text-[10px] font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/20"
-                          aria-expanded={isExpanded}
                         >
-                          {isExpanded ? "Hide details" : `+${r.findings.length - 8} more — open IP card`}
+                          +{r.findings.length - 8} more — open IP card
                         </button>
                       )}
                     </div>
                   )}
                 </td>
                 {assignTargets && assignTargets.length > 0 && (
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                     <select
                       defaultValue=""
                       disabled={assigning === (r.subId ?? r.hostId ?? "")}
@@ -521,48 +523,6 @@ export function ReconResults({
                   </td>
                 )}
               </tr>
-              {isExpanded && (
-                <tr key={`${key}-details`} className="border-b border-accent/20 bg-accent/[0.03]">
-                  <td colSpan={hasAssign ? 9 : 8} className="p-3">
-                    <div className="rounded-xl border border-accent/20 bg-surface p-4 shadow-lg shadow-accent/5">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-widest text-accent">Complete host details</p>
-                          <h3 className="mt-1 font-mono text-lg font-semibold text-foreground">{r.ip ?? r.subdomain}</h3>
-                          <p className="text-xs text-muted-dim">{r.subdomain}{r.title ? ` · ${r.title}` : ""}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setExpandedKey(null)}
-                          className="rounded-md border border-white/10 px-2 py-1 text-[10px] text-muted hover:text-foreground"
-                        >
-                          Close
-                        </button>
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
-                        <Detail label="Risk" value={r.risk === null ? "—" : String(r.risk)} />
-                        <Detail label="Status" value={r.host?.status ?? "—"} />
-                        <Detail label="OS" value={r.host?.os_guess ?? "—"} />
-                        <Detail label="Hostname" value={r.host?.hostname ?? "—"} />
-                        <Detail label="CDN" value={r.cdn ?? "—"} />
-                        <Detail label="WAF" value={r.host?.waf ?? "—"} />
-                        <Detail label="ASN" value={r.host?.asn ?? "—"} />
-                        <Detail label="Checked by" value={r.host?.checked_by ?? "—"} />
-                        <Detail label="Last scanned" value={r.host?.last_scanned ?? "—"} />
-                        <Detail label="SSL" value={r.host?.ssl_info ?? "—"} />
-                      </div>
-
-                      <div className="mt-4 grid gap-3 md:grid-cols-2">
-                        <DetailList label="All ports" values={r.ports.map((p) => `${p.port}/${p.protocol}${p.service ? ` · ${p.service}` : ""}${p.version ? ` ${p.version}` : ""}`)} />
-                        <DetailList label="Technology" values={r.tech} />
-                        <DetailList label="All findings" values={r.findings.map((f) => `${f.severity}: ${f.cve ?? f.title}${f.source ? ` (${f.source})` : ""}`)} />
-                        <DetailList label="Notes" values={r.host?.notes ? [r.host.notes] : []} />
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              )}
               </Fragment>
               );
             })}
@@ -578,6 +538,173 @@ export function ReconResults({
           Load more ({filtered.length - limit} remaining)
         </button>
       )}
+
+      {modalRow && <HostCardModal row={modalRow} onClose={() => setModalRow(null)} />}
+    </div>
+  );
+}
+
+const SEV_ORDER = ["Critical", "High", "Medium", "Low", "Info"];
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-dim">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function Chip({ children, tone }: { children: ReactNode; tone: "plain" | "cyan" | "orange" | "rose" }) {
+  const cls = {
+    plain: "border-white/10 text-muted",
+    cyan: "border-cyan-500/30 bg-cyan-500/10 text-cyan-300",
+    orange: "border-orange-500/30 bg-orange-500/10 text-orange-300",
+    rose: "border-rose-500/30 bg-rose-500/10 text-rose-300",
+  }[tone];
+  return <span className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${cls}`}>{children}</span>;
+}
+
+// Popup host card: opens when a result row is clicked. Ports, tech and findings
+// (grouped by severity) for one IP/subdomain, with Esc / click-outside to close.
+function HostCardModal({ row, onClose }: { row: Row; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  const counts = SEV_ORDER.map((sev) => ({ sev, n: row.findings.filter((f) => f.severity === sev).length })).filter((c) => c.n);
+  const grouped = SEV_ORDER.map((sev) => ({ sev, items: row.findings.filter((f) => f.severity === sev) })).filter((g) => g.items.length);
+
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm sm:p-8"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="animate-fade-in my-auto w-full max-w-3xl overflow-hidden rounded-2xl border border-accent/20 bg-surface shadow-2xl"
+      >
+        {/* header */}
+        <div className="relative overflow-hidden border-b border-white/5 p-5">
+          <div className="pointer-events-none absolute inset-0 grid-bg opacity-40" />
+          <div className="relative flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-accent">Host detail</p>
+              <h3 className="mt-1 truncate font-mono text-xl font-bold text-foreground">{row.subdomain}</h3>
+              <p className="mt-0.5 font-mono text-xs text-muted-dim">
+                {row.ip ?? "—"}
+                {row.title ? ` · ${row.title}` : ""}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {row.host?.status && <Chip tone="plain">{row.host.status}</Chip>}
+                {row.cloudflare ? <Chip tone="orange">Cloudflare</Chip> : row.cdn ? <Chip tone="cyan">{row.cdn}</Chip> : null}
+                {row.host?.waf && <Chip tone="rose">WAF: {row.host.waf}</Chip>}
+                {counts.map((c) => (
+                  <span key={c.sev} className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${SEV_COLOR[c.sev]}`}>
+                    {c.n} {c.sev}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {row.risk !== null && (
+                <span
+                  className={`flex h-12 w-12 flex-col items-center justify-center rounded-xl text-sm font-bold ${
+                    row.risk >= 70 ? "bg-rose-500/15 text-rose-300" : row.risk >= 40 ? "bg-amber-500/15 text-amber-300" : "bg-violet-500/15 text-violet-300"
+                  }`}
+                  title="Risk score 0–100"
+                >
+                  {row.risk}
+                  <span className="text-[8px] font-medium uppercase opacity-70">risk</span>
+                </span>
+              )}
+              <button onClick={onClose} className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-muted hover:text-foreground" title="Close (Esc)">
+                ✕
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="max-h-[70vh] space-y-5 overflow-y-auto p-5">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Detail label="OS" value={row.host?.os_guess ?? "—"} />
+            <Detail label="Hostname" value={row.host?.hostname ?? "—"} />
+            <Detail label="ASN" value={row.host?.asn ?? "—"} />
+            <Detail label="Last scan" value={row.host?.last_scanned ?? "—"} />
+          </div>
+
+          <Section title={`Open ports (${row.ports.length})`}>
+            {row.ports.length === 0 ? (
+              <p className="text-xs text-muted-dim">—</p>
+            ) : (
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {row.ports.map((p) => (
+                  <div key={`${p.port}-${p.protocol}`} className="flex items-center gap-2 rounded-lg border border-white/5 bg-background/40 px-2.5 py-1.5 text-xs">
+                    <span className="font-mono font-semibold text-accent">
+                      {p.port}/{p.protocol}
+                    </span>
+                    <span className="text-muted">{p.service ?? "?"}</span>
+                    <span className="ml-auto truncate text-[10px] text-muted-dim">{p.version ?? ""}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
+
+          <Section title="Technology">
+            {row.tech.length === 0 ? (
+              <p className="text-xs text-muted-dim">—</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {row.tech.map((t) => (
+                  <span key={t} className="rounded bg-accent/10 px-2 py-1 text-[11px] text-accent">
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
+          </Section>
+
+          <Section title={`Findings (${row.findings.length})`}>
+            {row.findings.length === 0 ? (
+              <p className="text-xs text-muted-dim">—</p>
+            ) : (
+              <div className="space-y-3">
+                {grouped.map((g) => (
+                  <div key={g.sev}>
+                    <p className={`mb-1 inline-block rounded border px-1.5 py-0.5 text-[10px] font-semibold ${SEV_COLOR[g.sev]}`}>
+                      {g.sev} · {g.items.length}
+                    </p>
+                    <div className="flex flex-col gap-1">
+                      {g.items.map((f, i) => (
+                        <div key={i} className="flex items-center gap-2 rounded-lg border border-white/5 bg-background/40 px-2.5 py-1.5 text-xs">
+                          {f.cve && <span className="shrink-0 font-mono text-accent">{f.cve}</span>}
+                          <span className="min-w-0 flex-1 truncate">{f.title}</span>
+                          {f.source && <span className="shrink-0 text-[10px] text-muted-dim">{f.source}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
+
+          {row.host?.notes && (
+            <Section title="Notes">
+              <p className="text-xs text-muted">{row.host.notes}</p>
+            </Section>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
