@@ -21,6 +21,7 @@ export function ConsoleClient({
   hosts: hostsInit,
   findings: findingsInit,
   members: membersInit,
+  initialMemberCount,
 }: {
   consoleTargetId: string;
   userEmail: string;
@@ -31,6 +32,7 @@ export function ConsoleClient({
   hosts: Host[];
   findings: Finding[];
   members: EngagementGroupMember[];
+  initialMemberCount: number;
 }) {
   const [groupId, setGroupId] = useState(consoleTargetId);
   const [newGroup, setNewGroup] = useState("");
@@ -51,6 +53,12 @@ export function ConsoleClient({
   const [hosts, setHosts] = useState<Host[]>(hostsInit);
   const [finds, setFinds] = useState<Finding[]>(findingsInit);
   const [members, setMembers] = useState<EngagementGroupMember[]>(membersInit);
+  const [memberCount, setMemberCount] = useState(initialMemberCount);
+  const [memberLoading, setMemberLoading] = useState(false);
+  const [memberError, setMemberError] = useState<string | null>(null);
+  const [memberHasMore, setMemberHasMore] = useState(membersInit.length < initialMemberCount);
+  const [selectAllMembers, setSelectAllMembers] = useState(false);
+  const [excludedMembers, setExcludedMembers] = useState<Set<string>>(new Set());
   const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<number | null>(null);
   const [failed, setFailed] = useState<number | null>(null);
@@ -130,13 +138,14 @@ export function ConsoleClient({
 
   const loadFor = useCallback(async (id: string) => {
     const supabase = createClient();
-    const [sc, sd, h, f, scp, gm] = await Promise.all([
+    const [sc, sd, h, f, scp, gm, gmc] = await Promise.all([
       supabase.from("scans").select("*").eq("target_id", id).order("created_at", { ascending: false }).range(0, 24),
       supabase.from("subdomains").select("*").eq("target_id", id).order("created_at", { ascending: false }).range(0, 199),
       supabase.from("hosts").select("*").eq("target_id", id).range(0, 199),
       supabase.from("findings").select("*").eq("target_id", id).order("created_at", { ascending: false }).range(0, 199),
       supabase.from("scope_entries").select("*").eq("target_id", id).order("created_at", { ascending: true }),
-      supabase.from("engagement_group_members").select("*").eq("group_id", id).order("created_at", { ascending: false }),
+      supabase.from("engagement_group_members").select("*").eq("group_id", id).order("created_at", { ascending: false }).range(0, 199),
+      supabase.from("engagement_group_members").select("id", { count: "exact", head: true }).eq("group_id", id),
     ]);
     setScans(sc.data ?? []);
     setScanListError(sc.error?.message ?? null);
@@ -147,9 +156,74 @@ export function ConsoleClient({
     setResultsHasMore([sd.data, h.data, f.data].some((rows) => (rows?.length ?? 0) === 200));
     setScopeEntries(scp.data ?? []);
     setMembers(gm.data ?? []);
+    setMemberCount(gmc.count ?? 0);
+    setMemberHasMore((gm.data?.length ?? 0) < (gmc.count ?? 0));
+    setMemberError(gm.error?.message ?? gmc.error?.message ?? null);
+    setSelectAllMembers(false);
+    setExcludedMembers(new Set());
+    setSelectedMembers(new Set());
     scanStatus.current = new Map((sc.data ?? []).map((s) => [s.id, s.status]));
     await refreshPending(id);
   }, [refreshPending]);
+
+  const loadMoreMembers = async () => {
+    if (memberLoading || !memberHasMore) return;
+    setMemberLoading(true);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("engagement_group_members")
+        .select("*")
+        .eq("group_id", groupId)
+        .order("created_at", { ascending: false })
+        .range(members.length, members.length + 199);
+      if (error) throw new Error(error.message);
+      setMembers((current) => [...current, ...(data ?? [])]);
+      setMemberHasMore(members.length + (data?.length ?? 0) < memberCount);
+      setMemberError(null);
+    } catch (error) {
+      setMemberError(error instanceof Error ? error.message : "Could not load group members");
+    } finally {
+      setMemberLoading(false);
+    }
+  };
+
+  const getAllMembers = async () => {
+    const supabase = createClient();
+    const all: EngagementGroupMember[] = [];
+    for (let offset = 0; offset < memberCount; offset += 1000) {
+      const { data, error } = await supabase
+        .from("engagement_group_members")
+        .select("*")
+        .eq("group_id", groupId)
+        .order("created_at", { ascending: false })
+        .range(offset, Math.min(offset + 999, memberCount - 1));
+      if (error) throw new Error(error.message);
+      all.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
+    }
+    return all;
+  };
+
+  const getRecentMemberValues = async () => {
+    const supabase = createClient();
+    const recent = new Set<string>();
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supabase
+        .from("scans")
+        .select("input, finished_at")
+        .eq("target_id", groupId)
+        .not("finished_at", "is", null)
+        .order("finished_at", { ascending: false })
+        .range(offset, offset + 999);
+      if (error) throw new Error(error.message);
+      for (const scan of data ?? []) {
+        if (scan.finished_at && Date.now() - new Date(scan.finished_at).getTime() <= 24 * 60 * 60 * 1000) recent.add(scan.input);
+      }
+      if (!data || data.length < 1000) break;
+    }
+    return recent;
+  };
 
   const loadMoreScans = async () => {
     if (loadingMoreScans || statusCounts.total === null || scans.length >= statusCounts.total) return;
@@ -581,11 +655,30 @@ export function ConsoleClient({
     return result;
   }, [scans]);
   const [skipRecent, setSkipRecent] = useState(false);
-  const scanableMembers = members.filter((member) => {
-    if (!skipRecent) return true;
-    const last = memberLastScan.get(member.value);
-    return !last || Date.now() - new Date(last).getTime() > 24 * 60 * 60 * 1000;
-  });
+  const memberSelectRef = useRef<HTMLInputElement>(null);
+  const selectedMemberCount = selectAllMembers ? Math.max(memberCount - excludedMembers.size, 0) : selectedMembers.size;
+  const allMembersSelected = memberCount > 0 && selectedMemberCount === memberCount;
+  useEffect(() => {
+    if (memberSelectRef.current) {
+      memberSelectRef.current.indeterminate = selectedMemberCount > 0 && !allMembersSelected;
+    }
+  }, [selectedMemberCount, allMembersSelected]);
+  const scanGroupMembers = async (all: boolean) => {
+    setBusy(true);
+    try {
+      const allMembers = await getAllMembers();
+      const recent = skipRecent ? await getRecentMemberValues() : new Set<string>();
+      const values = allMembers
+        .filter((member) => all || (selectAllMembers ? !excludedMembers.has(member.value) : selectedMembers.has(member.value)))
+        .map((member) => member.value)
+        .filter((value) => !recent.has(value));
+      await scanMembers(values);
+    } catch (error) {
+      setNotice({ kind: "err", text: error instanceof Error ? error.message : "Could not prepare group scan" });
+    } finally {
+      setBusy(false);
+    }
+  };
   const selectableGroups = groupList.filter((g) => g.id !== consoleTargetId);
   const assignTargets = groupList.filter((g) => !g.is_console && g.id !== groupId);
 
@@ -747,12 +840,29 @@ export function ConsoleClient({
           )}
         </div>
 
-        {groupId !== "__new__" && members.length > 0 && (
+        {groupId !== "__new__" && (memberCount > 0 || memberError) && (
           <div className="mt-4 rounded-xl border border-white/5 bg-background/30 p-3">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
-                Group members ({members.length})
-              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={memberSelectRef}
+                  type="checkbox"
+                  checked={allMembersSelected}
+                  aria-label="Select all group members"
+                  onChange={() => {
+                    if (allMembersSelected || selectAllMembers) {
+                      setSelectAllMembers(false);
+                      setExcludedMembers(new Set());
+                    } else {
+                      setSelectAllMembers(true);
+                      setSelectedMembers(new Set());
+                    }
+                  }}
+                />
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
+                  Group members ({memberCount.toLocaleString()})
+                </p>
+              </div>
               <div className="flex items-center gap-2">
                 <label className="flex items-center gap-1.5 text-[10px] text-muted-dim">
                   <input type="checkbox" checked={skipRecent} onChange={(e) => setSkipRecent(e.target.checked)} />
@@ -760,38 +870,51 @@ export function ConsoleClient({
                 </label>
                 <button
                   type="button"
-                  disabled={busy || locked || scanableMembers.length === 0}
-                  onClick={() => void scanMembers(scanableMembers.map((member) => member.value))}
+                  disabled={busy || locked || memberCount === 0}
+                  onClick={() => void scanGroupMembers(true)}
                   className="rounded-md border border-accent/30 bg-accent/15 px-2.5 py-1 text-[10px] font-semibold text-accent disabled:opacity-50"
                 >
-                  Scan all ({scanableMembers.length})
+                  Scan all ({memberCount.toLocaleString()})
                 </button>
-                {selectedMembers.size > 0 && (
+                {selectedMemberCount > 0 && (
                   <button
                     type="button"
                     disabled={busy || locked}
-                    onClick={() => void scanMembers([...selectedMembers])}
+                    onClick={() => void scanGroupMembers(false)}
                     className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold text-amber-300 disabled:opacity-50"
                   >
-                    Scan selected ({selectedMembers.size})
+                    Scan selected ({selectedMemberCount.toLocaleString()})
                   </button>
                 )}
               </div>
             </div>
+            {memberError && <p className="mb-2 text-[10px] text-rose-300">Could not load members: {memberError}</p>}
             <div className="grid max-h-56 gap-1 overflow-y-auto md:grid-cols-2">
               {members.map((member) => {
                 const last = memberLastScan.get(member.value);
+                const checked = selectAllMembers ? !excludedMembers.has(member.value) : selectedMembers.has(member.value);
                 return (
                   <label key={member.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-white/5">
                     <input
                       type="checkbox"
-                      checked={selectedMembers.has(member.value)}
-                      onChange={() => setSelectedMembers((current) => {
-                        const next = new Set(current);
-                        if (next.has(member.value)) next.delete(member.value);
-                        else next.add(member.value);
-                        return next;
-                      })}
+                      checked={checked}
+                      onChange={() => {
+                        if (selectAllMembers) {
+                          setExcludedMembers((current) => {
+                            const next = new Set(current);
+                            if (next.has(member.value)) next.delete(member.value);
+                            else next.add(member.value);
+                            return next;
+                          });
+                        } else {
+                          setSelectedMembers((current) => {
+                            const next = new Set(current);
+                            if (next.has(member.value)) next.delete(member.value);
+                            else next.add(member.value);
+                            return next;
+                          });
+                        }
+                      }}
                     />
                     <span className="min-w-0 flex-1 truncate font-mono">{member.value}</span>
                     <span className={last ? "text-[10px] text-muted-dim" : "text-[10px] text-amber-300"}>
@@ -801,6 +924,16 @@ export function ConsoleClient({
                 );
               })}
             </div>
+            {memberHasMore && (
+              <button
+                type="button"
+                onClick={() => void loadMoreMembers()}
+                disabled={memberLoading}
+                className="mt-2 w-full rounded-md border border-white/10 px-2 py-1.5 text-[10px] text-muted-dim hover:bg-white/5 disabled:opacity-50"
+              >
+                {memberLoading ? "Loading members…" : `Load more (${members.length.toLocaleString()} of ${memberCount.toLocaleString()})`}
+              </button>
+            )}
           </div>
         )}
 

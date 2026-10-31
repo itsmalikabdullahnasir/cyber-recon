@@ -54,7 +54,7 @@ export default async function ConsolePage() {
   }
 
   const id = target.id;
-  const [{ data: scopeEntries }, { data: scans }, { data: subdomains }, { data: hosts }, { data: findings }, { data: groups }, { data: members }] =
+  const [{ data: scopeEntries }, { data: scans }, { data: subdomains }, { data: hosts }, { data: findings }, { data: groups }, { data: members }, { count: memberCount }] =
     await Promise.all([
       supabase.from("scope_entries").select("*").eq("target_id", id).order("created_at", { ascending: true }),
       supabase.from("scans").select("*").eq("target_id", id).order("created_at", { ascending: false }).limit(25),
@@ -62,7 +62,8 @@ export default async function ConsolePage() {
       supabase.from("hosts").select("*").eq("target_id", id),
       supabase.from("findings").select("*").eq("target_id", id).order("created_at", { ascending: false }),
       supabase.from("targets").select("id, name, category, is_console").order("created_at", { ascending: false }),
-      supabase.from("engagement_group_members").select("*").eq("group_id", id).order("created_at", { ascending: false }),
+      supabase.from("engagement_group_members").select("*").eq("group_id", id).order("created_at", { ascending: false }).range(0, 199),
+      supabase.from("engagement_group_members").select("id", { count: "exact", head: true }).eq("group_id", id),
     ]);
 
   return (
@@ -92,6 +93,7 @@ export default async function ConsolePage() {
           hosts={hosts ?? []}
           findings={findings ?? []}
           members={members ?? []}
+          initialMemberCount={memberCount ?? 0}
         />
       </div>
     </>
