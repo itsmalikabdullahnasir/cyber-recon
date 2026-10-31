@@ -165,6 +165,16 @@ export function ConsoleClient({
       const target = await ensureGroup();
       if (!target) return;
       const batch = parsed.slice(0, 50);
+      // Warn about targets that already have a scan in this group — but allow continuing.
+      const dupes = batch.filter((t) => scans.some((s) => s.input === t));
+      if (
+        dupes.length &&
+        !confirm(
+          `${dupes.length} of these already have a scan: ${dupes.slice(0, 6).join(", ")}${dupes.length > 6 ? ", …" : ""}.\n\nRun them again anyway?`,
+        )
+      ) {
+        return;
+      }
       const res = await fetch("/api/console", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

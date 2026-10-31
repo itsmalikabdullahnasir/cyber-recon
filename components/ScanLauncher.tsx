@@ -46,6 +46,17 @@ export function ScanLauncher({
   }, [targetId]);
 
   async function launch(mode: "passive" | "full") {
+    // Warn if this exact target already has a scan — but let the user continue.
+    const input = override.trim() || domain || "";
+    const dup = scans.find((s) => s.input === input);
+    if (
+      dup &&
+      !confirm(
+        `A ${dup.mode} scan for "${input}" already exists (${dup.status}, ${new Date(dup.created_at).toLocaleString()}).\n\nRun it again anyway?`,
+      )
+    ) {
+      return;
+    }
     setError(null);
     setLaunching(mode);
     try {

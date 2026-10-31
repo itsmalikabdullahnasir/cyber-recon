@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Scan } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
+import { UserAvatar } from "@/components/UserAvatar";
 
 // Ordered pipeline stages, with short labels for the progress chips.
 export const STAGE_ORDER = [
@@ -137,7 +138,15 @@ export function ScanRow({ scan }: { scan: Scan }) {
         >
           {displayStatus}
         </span>
-        <span className="ml-auto text-[10px] text-muted-dim">{new Date(scan.created_at).toLocaleString()}</span>
+        <span className="ml-auto flex items-center gap-2">
+          {scan.requested_by_email && (
+            <span className="flex items-center gap-1 text-[10px] text-muted-dim" title={`Scanned by ${scan.requested_by_email}`}>
+              <UserAvatar name={scan.requested_by_email} size={16} />
+              {scan.requested_by_email.split("@")[0]}
+            </span>
+          )}
+          <span className="text-[10px] text-muted-dim">{new Date(scan.created_at).toLocaleString()}</span>
+        </span>
       </div>
 
       <div className="mt-2 flex flex-wrap gap-1.5">

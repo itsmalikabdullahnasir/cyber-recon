@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ScanProgress } from "@/components/ScanProgress";
+import { UserAvatar } from "@/components/UserAvatar";
 import { signOut } from "@/app/actions";
 
 const LINKS = [
@@ -55,7 +56,7 @@ export function TopNav({ userEmail }: { userEmail: string }) {
           <ThemeToggle />
           <NotificationBell userEmail={userEmail} />
           <div className="hidden items-center gap-2 rounded-lg border border-white/5 bg-surface px-2.5 py-1.5 lg:flex">
-            <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 text-emerald-400" />
+            {userEmail ? <UserAvatar name={userEmail} size={18} /> : <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-emerald-400 text-emerald-400" />}
             <span className="max-w-[160px] truncate text-xs text-muted">{userEmail}</span>
           </div>
           <form action={signOut}>
