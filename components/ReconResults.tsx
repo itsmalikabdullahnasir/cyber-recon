@@ -97,6 +97,26 @@ export function ReconResults({
     onAssigned?.();
   }
 
+  async function deleteRows(selectedRows: Row[]) {
+    if (selectedRows.length === 0) return;
+    if (!confirm(`Delete ${selectedRows.length} result(s)? This removes the subdomain, its host and their findings.`)) return;
+    setBulkBusy(true);
+    const supabase = createClient();
+    const subIds = selectedRows.map((r) => r.subId).filter((x): x is string => !!x);
+    const hostIds = selectedRows.map((r) => r.hostId).filter((x): x is string => !!x);
+    const chunk = async (ids: string[], fn: (c: string[]) => PromiseLike<unknown>) => {
+      for (let i = 0; i < ids.length; i += 100) await fn(ids.slice(i, i + 100));
+    };
+    // Findings first (so nothing is orphaned), then the hosts/subdomains.
+    if (subIds.length) await chunk(subIds, (c) => supabase.from("findings").delete().in("subdomain_id", c));
+    if (hostIds.length) await chunk(hostIds, (c) => supabase.from("findings").delete().in("host_id", c));
+    if (subIds.length) await chunk(subIds, (c) => supabase.from("subdomains").delete().in("id", c));
+    if (hostIds.length) await chunk(hostIds, (c) => supabase.from("hosts").delete().in("id", c));
+    setBulkBusy(false);
+    setSelected(new Set());
+    onAssigned?.();
+  }
+
   const [onlyLive, setOnlyLive] = useState(true);
   const [copied, setCopied] = useState(false);
   const [query, setQuery] = useState("");
@@ -305,6 +325,13 @@ export function ReconResults({
               <option key={g.id} value={g.id}>{g.name}</option>
             ))}
           </select>
+          <button
+            onClick={() => deleteRows(shown.filter((r) => selected.has(rowKey(r))))}
+            disabled={bulkBusy}
+            className="rounded-md border border-rose-500/40 bg-rose-500/15 px-2 py-1 text-[11px] font-medium text-rose-200 transition-colors hover:bg-rose-500/25 disabled:opacity-50"
+          >
+            🗑 Delete selected
+          </button>
           <button onClick={() => setSelected(new Set())} className="text-muted-dim hover:text-foreground">
             Clear
           </button>

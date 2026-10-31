@@ -286,6 +286,25 @@ export function ConsoleClient({
     }
   }
 
+  async function deleteGroup() {
+    if (groupId === consoleTargetId || groupId === "__new__") return;
+    const g = groupList.find((x) => x.id === groupId);
+    if (!confirm(`Delete group "${g?.name ?? "this group"}" and ALL its hosts, subdomains, findings and scans? This cannot be undone.`)) return;
+    setBusy(true);
+    try {
+      const supabase = createClient();
+      await supabase.from("scans").update({ status: "failed", error: "group deleted" }).eq("target_id", groupId).eq("status", "queued");
+      await supabase.from("targets").delete().eq("id", groupId); // cascades to hosts/subdomains/findings/scans/scope
+      setGroupList((list) => list.filter((x) => x.id !== groupId));
+      setGroupId(consoleTargetId);
+      setNotice({ kind: "ok", text: `Group "${g?.name ?? ""}" deleted.` });
+    } catch (e) {
+      setNotice({ kind: "err", text: e instanceof Error ? e.message : "Could not delete group" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function stopQueue() {
     setBusy(true);
     try {
@@ -345,6 +364,15 @@ export function ConsoleClient({
               placeholder="e.g. Bahria University"
               className="rounded-lg border border-white/10 bg-background px-3 py-2 text-sm outline-none focus:border-accent/40"
             />
+          )}
+          {groupId !== consoleTargetId && groupId !== "__new__" && (
+            <button
+              onClick={deleteGroup}
+              disabled={busy}
+              className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-2 text-xs font-medium text-rose-200 transition-colors hover:bg-rose-500/20 disabled:opacity-50"
+            >
+              🗑 Delete group
+            </button>
           )}
           <span className="text-[11px] text-muted-dim">
             Results land in this group and appear on the dashboard with risk analysis.

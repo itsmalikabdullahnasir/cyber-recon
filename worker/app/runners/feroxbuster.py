@@ -39,7 +39,10 @@ def run(url: str, workdir: Path, name: str) -> list[dict]:
             "--timeout", "10",
         ],
         timeout=s.feroxbuster_timeout, workdir=workdir, name=f"ferox-{name}",
+        inactivity_timeout=s.waf_inactivity_timeout,
     )
+    if result.inactive and not out.exists():
+        raise ToolError(f"no output in {s.waf_inactivity_timeout}s — target likely behind a WAF/Cloudflare")
     if result.returncode != 0 and not out.exists():
         raise ToolError(f"feroxbuster failed: {result.stderr_tail[-300:]}")
 

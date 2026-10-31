@@ -71,6 +71,8 @@ class Settings:
     httpx_timeout: int = field(default_factory=lambda: _int("HTTPX_TIMEOUT", 900))
     nmap_host_timeout: int = field(default_factory=lambda: _int("NMAP_HOST_TIMEOUT", 900))
     nuclei_timeout: int = field(default_factory=lambda: _int("NUCLEI_TIMEOUT", 1200))
+    # Kill an active tool that produces no output for this long (likely WAF/Cloudflare).
+    waf_inactivity_timeout: int = field(default_factory=lambda: _int("WAF_INACTIVITY_TIMEOUT", 90))
     whatweb_timeout: int = field(default_factory=lambda: _int("WHATWEB_TIMEOUT", 120))
     wafw00f_timeout: int = field(default_factory=lambda: _int("WAFW00F_TIMEOUT", 120))
     testssl_timeout: int = field(default_factory=lambda: _int("TESTSSL_TIMEOUT", 900))

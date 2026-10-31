@@ -4,14 +4,14 @@ import json
 from pathlib import Path
 
 from ..config import get_settings
-from ..proc import run_tool
+from ..proc import ToolError, run_tool
 
 
 def run(url: str, workdir: Path, name: str) -> list[dict]:
     """Return [{id, msg, url, method}] of nikto findings."""
     s = get_settings()
     out = workdir / f"nikto-{name}.json"
-    run_tool(
+    result = run_tool(
         [
             s.nikto_bin,
             "-host", url,
@@ -21,7 +21,10 @@ def run(url: str, workdir: Path, name: str) -> list[dict]:
             "-nointeractive", "-ask", "no",
         ],
         timeout=s.nikto_timeout, workdir=workdir, name=f"nikto-{name}",
+        inactivity_timeout=s.waf_inactivity_timeout,
     )
+    if result.inactive and not out.exists():
+        raise ToolError(f"no output in {s.waf_inactivity_timeout}s — target likely behind a WAF/Cloudflare")
     if not out.exists():
         return []
     try:

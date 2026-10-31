@@ -228,9 +228,12 @@ class Pipeline:
             self.stage("nuclei", "skipped", detail=f"no non-CDN in-scope hosts ({cdn_skipped} CDN skipped)")
         else:
             self.stage("nuclei", "running", urls=len(urls), cdn_skipped=cdn_skipped)
-            results = nuclei.run(urls, self.workdir)
-            n = self._apply_nuclei(results, probes)
-            self.stage("nuclei", "done", urls=len(urls), findings=n, cdn_skipped=cdn_skipped)
+            try:
+                results = nuclei.run(urls, self.workdir)
+                n = self._apply_nuclei(results, probes)
+                self.stage("nuclei", "done", urls=len(urls), findings=n, cdn_skipped=cdn_skipped)
+            except ToolError as e:
+                self.stage("nuclei", "skipped", detail=str(e))
 
         # h: testssl (TLS audit)
         if self.s.enable_testssl:

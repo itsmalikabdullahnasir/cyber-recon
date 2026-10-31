@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from ..config import get_settings
-from ..proc import run_tool
+from ..proc import ToolError, run_tool
 
 # testssl severities we keep as findings (OK/INFO/WARN dropped as noise).
 KEEP = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
@@ -14,11 +14,14 @@ def run(host: str, workdir: Path, name: str) -> list[dict]:
     """Return [{id, severity, finding, cve}] for notable TLS issues on <host>:443."""
     s = get_settings()
     out = workdir / f"testssl-{name}.json"
-    run_tool(
+    result = run_tool(
         [s.testssl_bin, "--quiet", "--color", "0", "--fast", "--sneaky",
          "--jsonfile", str(out), "--severity", "LOW", f"{host}:443"],
         timeout=s.testssl_timeout, workdir=workdir, name=f"testssl-{name}",
+        inactivity_timeout=s.waf_inactivity_timeout,
     )
+    if result.inactive and not out.exists():
+        raise ToolError(f"no output in {s.waf_inactivity_timeout}s — target likely behind a WAF/Cloudflare")
     if not out.exists():
         return []
     try:

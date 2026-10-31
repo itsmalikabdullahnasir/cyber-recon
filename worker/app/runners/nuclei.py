@@ -28,7 +28,10 @@ def run(urls: list[str], workdir: Path) -> list[dict]:
         timeout=s.nuclei_timeout,
         workdir=workdir,
         name="nuclei",
+        inactivity_timeout=s.waf_inactivity_timeout,
     )
+    if result.inactive and not out.exists():
+        raise ToolError(f"no output in {s.waf_inactivity_timeout}s — target likely behind a WAF/Cloudflare")
     if result.returncode != 0 and not out.exists():
         raise ToolError(f"nuclei failed: {result.stderr_tail[-300:]}")
     return [parse_result(row) for row in read_jsonl(out)]
