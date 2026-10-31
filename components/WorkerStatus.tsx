@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type WorkerState = { ok: boolean; pending: number | null; latencyMs?: number; error?: string };
+type WorkerState = { ok: boolean; latencyMs?: number; error?: string };
 
 export function WorkerStatus() {
   const [state, setState] = useState<WorkerState | null>(null);
@@ -15,7 +15,7 @@ export function WorkerStatus() {
         const data = (await response.json()) as WorkerState;
         if (active) setState(data);
       } catch {
-        if (active) setState({ ok: false, pending: null, error: "Health check failed" });
+        if (active) setState({ ok: false, error: "Health check failed" });
       }
     };
     void check();
@@ -26,7 +26,7 @@ export function WorkerStatus() {
     };
   }, []);
 
-  const label = state === null ? "Worker checking" : state.ok ? `Worker online${state.pending === null ? "" : ` · ${state.pending} pending`}` : "Worker offline";
+  const label = state === null ? "Worker checking" : state.ok ? `Worker · ${state.latencyMs ?? "—"}ms` : "Worker offline";
   return (
     <span
       title={state?.error ?? (state?.latencyMs ? `${state.latencyMs}ms response` : label)}
