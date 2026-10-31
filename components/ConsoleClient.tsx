@@ -328,22 +328,57 @@ export function ConsoleClient({
       for (let i = 0; i < hostRows.length; i += 500) await supabase.from("hosts").insert(hostRows.slice(i, i + 500));
 
       let queued = 0;
+      let scanCancelled = false;
       if (scanAfter && newNames.length) {
-        const scanRows = newNames.map((n) => ({
-          target_id: target, input: n, mode: "enrich", status: "queued", requested_by_email: userEmail,
-        }));
-        for (let i = 0; i < scanRows.length; i += 500) {
-          await supabase.from("scans").insert(scanRows.slice(i, i + 500));
-          setNotice({ kind: "ok", text: `Queueing scans… ${Math.min(i + 500, scanRows.length)} / ${scanRows.length}` });
+        // Bulk scans now run through the SELECTED workflow (same pipeline/profile/
+        // mode as a normal scan), not the old fast "enrich" path. The worker's DB
+        // poller reads scans.pipeline / scans.mode per row, so a direct insert is
+        // enough — no per-scan API round-trip, so thousands can queue at once.
+        const mode = selectedMode;
+        const workflowName = selectedPipelineData?.name ?? "selected workflow";
+        if (mode === "full") {
+          // Active workflow: confirm once, then authorize every imported name in
+          // this group's scope so the worker's active-stage gate passes unattended.
+          const ok = window.confirm(
+            `Queue ${newNames.length} scan(s) through the "${workflowName}" workflow (ACTIVE).\n\n` +
+              `This runs active modules (port scan, directory brute-force, vuln templates, web-server scan) against every imported host, and adds them to this group's authorized scope so the whole batch runs without asking again. Only continue for systems you are permitted to test.\n\n` +
+              `Authorize and queue all ${newNames.length}?`,
+          );
+          if (ok) {
+            await supabase.from("targets").update({ scope: "In Scope" }).eq("id", target);
+            const scopeRows = newNames.map((n) => ({
+              target_id: target, kind: "domain", value: n.toLowerCase(), note: "auto-authorized from bulk import",
+            }));
+            for (let i = 0; i < scopeRows.length; i += 500) {
+              await supabase.from("scope_entries").upsert(scopeRows.slice(i, i + 500), {
+                onConflict: "target_id,kind,value", ignoreDuplicates: true,
+              });
+            }
+          } else {
+            scanCancelled = true;
+          }
         }
-        queued = scanRows.length;
-        await refreshPending(target);
+        if (!scanCancelled) {
+          const profile_id = selectedPipelineData?.profileId ?? null;
+          const pipeline = selectedPipelineData?.modules ?? null;
+          const scanRows = newNames.map((n) => ({
+            target_id: target, input: n, mode, status: "queued",
+            requested_by_email: userEmail, profile_id, pipeline,
+          }));
+          for (let i = 0; i < scanRows.length; i += 500) {
+            await supabase.from("scans").insert(scanRows.slice(i, i + 500));
+            setNotice({ kind: "ok", text: `Queueing scans… ${Math.min(i + 500, scanRows.length)} / ${scanRows.length}` });
+          }
+          queued = scanRows.length;
+          await refreshPending(target);
+        }
       }
 
       await loadFor(target);
       const parts = [`Imported ${subRows.length} new`];
       if (skipped > 0) parts.push(`${skipped} already present (skipped)`);
-      if (queued > 0) parts.push(`${queued} enrich scans queued — running one at a time`);
+      if (queued > 0) parts.push(`${queued} "${selectedPipelineData?.name ?? "scan"}" scans queued — running one at a time`);
+      else if (scanCancelled) parts.push("scanning cancelled (rows imported only)");
       setNotice({ kind: "ok", text: parts.join(" · ") });
       setInput("");
     } catch (e) {
@@ -541,8 +576,13 @@ export function ConsoleClient({
           </button>
           {importable && (
             <>
-              <button onClick={() => runImport(true)} disabled={busy || locked} className="btn btn-accent" title="Load these hosts and queue a passive scan for each new one">
-                ⚡ Import &amp; scan {importable.length.toLocaleString()}
+              <button
+                onClick={() => runImport(true)}
+                disabled={busy || locked}
+                className="btn btn-accent"
+                title={`Load these hosts and queue a "${selectedPipelineData?.name ?? "selected"}" scan (${workflowRisk} risk) for each new one`}
+              >
+                ⚡ Import &amp; scan {importable.length.toLocaleString()} · {selectedPipelineData?.name ?? "workflow"}
               </button>
               <button onClick={() => runImport(false)} disabled={busy} className="btn" title="Just load the hosts, don't scan">
                 ⬇ Import {importable.length.toLocaleString()} (no scan)
