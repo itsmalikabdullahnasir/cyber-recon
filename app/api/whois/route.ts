@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const API_KEY = "at_KrGgtnDLCPkm2uhg7niUNY2iCv9Sk";
+const API_KEY = process.env.WHOISXML_API_KEY;
 
 async function fetchJSON(url: string) {
   const res = await fetch(url);
@@ -18,6 +18,9 @@ export async function POST(request: Request) {
     const { service, target } = await request.json();
     if (!service || !target) {
       return NextResponse.json({ error: "service and target required" }, { status: 400 });
+    }
+    if (!API_KEY) {
+      return NextResponse.json({ error: "WHOISXML_API_KEY is not configured" }, { status: 503 });
     }
 
     let data: any;

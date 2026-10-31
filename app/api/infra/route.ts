@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const WHOIS_KEY = "at_KrGgtnDLCPkm2uhg7niUNY2iCv9Sk";
+const WHOIS_KEY = process.env.WHOISXML_API_KEY;
 
 async function fetchJSON(url: string) {
   const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
@@ -65,6 +65,7 @@ async function detectCDN(url: string) {
 }
 
 async function lookupNetblocks(ip: string) {
+  if (!WHOIS_KEY) throw new Error("WHOISXML_API_KEY is not configured");
   try {
     const data = await fetchJSON(
       `https://www.whoisxmlapi.com/ipnetblocks/api/?apiKey=${WHOIS_KEY}&ip=${ip}&outputFormat=json`
@@ -76,6 +77,7 @@ async function lookupNetblocks(ip: string) {
 }
 
 async function lookupDomainHistory(domain: string) {
+  if (!WHOIS_KEY) throw new Error("WHOISXML_API_KEY is not configured");
   try {
     const data = await fetchJSON(
       `https://www.whoisxmlapi.com/whoisserver/WhoisService?domainName=${domain}&apiKey=${WHOIS_KEY}&outputFormat=json&mode=history`

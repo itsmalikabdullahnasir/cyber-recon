@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 
-const SHODAN_API_KEY = "R62MM7So0B1QCEglLyVTX0j0k1XCKRGb";
+const SHODAN_API_KEY = process.env.SHODAN_API_KEY;
 
 async function tryShodanHost(ip: string) {
+  if (!SHODAN_API_KEY) throw new Error("SHODAN_API_KEY is not configured");
   const res = await fetch(
     `https://api.shodan.io/shodan/host/${ip}?key=${SHODAN_API_KEY}`
   );
