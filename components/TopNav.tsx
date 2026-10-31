@@ -10,6 +10,7 @@ import { signOut } from "@/app/actions";
 const LINKS = [
   { href: "/", label: "Dashboard", icon: "◆" },
   { href: "/console", label: "Scan Console", icon: "🛰️" },
+  { href: "/pipeline", label: "Pipeline", icon: "🧩" },
   { href: "/notifications", label: "Notifications", icon: "🔔" },
 ];
 
