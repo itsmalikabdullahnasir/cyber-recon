@@ -50,6 +50,10 @@ export function ConsoleClient({
   const [finds, setFinds] = useState<Finding[]>(findingsInit);
   const [pending, setPending] = useState(0);
   const [failed, setFailed] = useState(0);
+  const [statusCounts, setStatusCounts] = useState({ queued: 0, running: 0, done: 0, failed: 0, total: initialScans.length });
+  const [loadingMoreScans, setLoadingMoreScans] = useState(false);
+  const [visibleScans, setVisibleScans] = useState(8);
+  const [resultsHasMore, setResultsHasMore] = useState(false);
   const scanStatus = useRef<Map<string, string>>(new Map(initialScans.map((s) => [s.id, s.status])));
 
   useEffect(() => {
@@ -93,43 +97,89 @@ export function ConsoleClient({
 
   const refreshPending = useCallback(async (id: string) => {
     const supabase = createClient();
-    const [pend, fail] = await Promise.all([
-      supabase.from("scans").select("id", { count: "exact", head: true }).eq("target_id", id).in("status", ["queued", "running"]),
-      supabase.from("scans").select("id", { count: "exact", head: true }).eq("target_id", id).eq("status", "failed"),
-    ]);
-    setPending(pend.count ?? 0);
-    setFailed(fail.count ?? 0);
+    const statuses = await Promise.all(["queued", "running", "done", "failed"].map((status) =>
+      supabase.from("scans").select("id", { count: "exact", head: true }).eq("target_id", id).eq("status", status),
+    ));
+    const counts = {
+      queued: statuses[0].count ?? 0,
+      running: statuses[1].count ?? 0,
+      done: statuses[2].count ?? 0,
+      failed: statuses[3].count ?? 0,
+    };
+    setStatusCounts({ ...counts, total: Object.values(counts).reduce((sum, count) => sum + count, 0) });
+    setPending(counts.queued + counts.running);
+    setFailed(counts.failed);
   }, []);
 
   const loadFor = useCallback(async (id: string) => {
     const supabase = createClient();
     const [sc, sd, h, f, scp] = await Promise.all([
-      supabase.from("scans").select("*").eq("target_id", id).order("created_at", { ascending: false }).limit(25),
-      supabase.from("subdomains").select("*").eq("target_id", id).order("created_at", { ascending: false }),
-      supabase.from("hosts").select("*").eq("target_id", id),
-      supabase.from("findings").select("*").eq("target_id", id).order("created_at", { ascending: false }),
+      supabase.from("scans").select("*").eq("target_id", id).order("created_at", { ascending: false }).range(0, 24),
+      supabase.from("subdomains").select("*").eq("target_id", id).order("created_at", { ascending: false }).range(0, 199),
+      supabase.from("hosts").select("*").eq("target_id", id).range(0, 199),
+      supabase.from("findings").select("*").eq("target_id", id).order("created_at", { ascending: false }).range(0, 199),
       supabase.from("scope_entries").select("*").eq("target_id", id).order("created_at", { ascending: true }),
     ]);
     setScans(sc.data ?? []);
+    setVisibleScans(8);
     setSubs(sd.data ?? []);
     setHosts(h.data ?? []);
     setFinds(f.data ?? []);
+    setResultsHasMore([sd.data, h.data, f.data].some((rows) => (rows?.length ?? 0) === 200));
     setScopeEntries(scp.data ?? []);
     scanStatus.current = new Map((sc.data ?? []).map((s) => [s.id, s.status]));
     refreshPending(id);
   }, [refreshPending]);
 
+  const loadMoreScans = async () => {
+    if (loadingMoreScans || scans.length >= statusCounts.total) return;
+    setLoadingMoreScans(true);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("scans")
+        .select("*")
+        .eq("target_id", groupId)
+        .order("created_at", { ascending: false })
+        .range(scans.length, scans.length + 24);
+      if (error) throw new Error(error.message);
+      setScans((current) => [...current, ...(data ?? [])]);
+    } catch (error) {
+      setNotice({ kind: "err", text: error instanceof Error ? error.message : "Could not load more scans" });
+    } finally {
+      setLoadingMoreScans(false);
+    }
+  };
+
   const loadResults = useCallback(async (id: string) => {
     const supabase = createClient();
     const [sd, h, f] = await Promise.all([
-      supabase.from("subdomains").select("*").eq("target_id", id).order("created_at", { ascending: false }),
-      supabase.from("hosts").select("*").eq("target_id", id),
-      supabase.from("findings").select("*").eq("target_id", id).order("created_at", { ascending: false }),
+      supabase.from("subdomains").select("*").eq("target_id", id).order("created_at", { ascending: false }).range(0, 199),
+      supabase.from("hosts").select("*").eq("target_id", id).range(0, 199),
+      supabase.from("findings").select("*").eq("target_id", id).order("created_at", { ascending: false }).range(0, 199),
     ]);
     setSubs(sd.data ?? []);
     setHosts(h.data ?? []);
     setFinds(f.data ?? []);
+    setResultsHasMore([sd.data, h.data, f.data].some((rows) => (rows?.length ?? 0) === 200));
   }, []);
+
+  const loadMoreResults = async () => {
+    const supabase = createClient();
+    const [sd, h, f] = await Promise.all([
+      supabase.from("subdomains").select("*").eq("target_id", groupId).order("created_at", { ascending: false }).range(subs.length, subs.length + 199),
+      supabase.from("hosts").select("*").eq("target_id", groupId).range(hosts.length, hosts.length + 199),
+      supabase.from("findings").select("*").eq("target_id", groupId).order("created_at", { ascending: false }).range(finds.length, finds.length + 199),
+    ]);
+    if (sd.error || h.error || f.error) {
+      setNotice({ kind: "err", text: sd.error?.message ?? h.error?.message ?? f.error?.message ?? "Could not load more results" });
+      return;
+    }
+    setSubs((current) => [...current, ...(sd.data ?? [])]);
+    setHosts((current) => [...current, ...(h.data ?? [])]);
+    setFinds((current) => [...current, ...(f.data ?? [])]);
+    setResultsHasMore([sd.data, h.data, f.data].some((rows) => (rows?.length ?? 0) === 200));
+  };
 
   // When the selected group changes (and isn't the initial default), load it.
   const first = useRef(true);
@@ -653,7 +703,7 @@ export function ConsoleClient({
       <div>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold">Scan activity {scans.length > 0 && <span className="text-muted-dim">({scans.length})</span>}</h2>
+            <h2 className="text-sm font-semibold">Scan activity {statusCounts.total > 0 && <span className="text-muted-dim">({statusCounts.total})</span>}</h2>
             {failed > 0 && (
               <button
                 onClick={reRunFailed}
@@ -673,7 +723,7 @@ export function ConsoleClient({
               ["failed", "Failed", "border-rose-500/30 bg-rose-500/10 text-rose-300"],
             ] as const).map(([key, label, cls]) => (
               <span key={key} className={`rounded-md border px-2 py-0.5 font-medium ${cls}`}>
-                {scans.filter((s) => s.status === key).length} {label}
+                {statusCounts[key as keyof typeof statusCounts]} {label}
               </span>
             ))}
           </div>
@@ -682,9 +732,22 @@ export function ConsoleClient({
           <p className="card p-4 text-center text-xs text-muted-dim">No scans in this group yet.</p>
         ) : (
           <div className="grid gap-2 lg:grid-cols-2">
-            {scans.slice(0, 8).map((s) => <ScanRow key={s.id} scan={s} />)}
+            {scans.slice(0, visibleScans).map((s) => <ScanRow key={s.id} scan={s} />)}
           </div>
         )}
+        {visibleScans < scans.length || scans.length < statusCounts.total ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (visibleScans < scans.length) setVisibleScans((current) => current + 8);
+              else void loadMoreScans();
+            }}
+            disabled={loadingMoreScans}
+            className="mx-auto mt-3 block rounded-lg border border-white/10 px-4 py-1.5 text-xs text-muted transition-colors hover:text-foreground disabled:opacity-50"
+          >
+            {loadingMoreScans ? "Loading…" : `Load more scans (${Math.max(statusCounts.total - visibleScans, 0).toLocaleString()} remaining)`}
+          </button>
+        ) : null}
       </div>
 
       {/* Results */}
@@ -696,6 +759,7 @@ export function ConsoleClient({
           findings={finds}
           assignTargets={assignTargets}
           onAssigned={() => loadResults(groupId)}
+          onLoadMore={resultsHasMore ? () => void loadMoreResults() : undefined}
         />
       </div>
     </div>

@@ -68,12 +68,14 @@ export function ReconResults({
   findings,
   assignTargets,
   onAssigned,
+  onLoadMore,
 }: {
   subdomains: Subdomain[];
   hosts: Host[];
   findings: Finding[];
   assignTargets?: GroupLite[];
   onAssigned?: () => void;
+  onLoadMore?: () => void;
 }) {
   const [assigning, setAssigning] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -531,9 +533,12 @@ export function ReconResults({
         </table>
       </div>
 
-      {filtered.length > limit && (
+      {(filtered.length > limit || (onLoadMore && filtered.length <= limit)) && (
         <button
-          onClick={() => setLimit((l) => l + 50)}
+          onClick={() => {
+            if (filtered.length > limit) setLimit((l) => l + 50);
+            else onLoadMore?.();
+          }}
           className="mx-auto rounded-lg border border-white/10 px-4 py-1.5 text-xs text-muted transition-colors hover:text-foreground"
         >
           Load more ({filtered.length - limit} remaining)

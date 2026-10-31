@@ -28,6 +28,7 @@ export function DashboardClient({
   findings: findingsInit,
   activities,
   scans: scansInit,
+  totals,
   userName,
 }: {
   targets: Target[];
@@ -35,6 +36,16 @@ export function DashboardClient({
   findings: Finding[];
   activities: Activity[];
   scans: Scan[];
+  totals: {
+    targets: number;
+    hosts: number;
+    liveHosts: number;
+    findings: number;
+    criticalFindings: number;
+    scans: number;
+    activeScans: number;
+    severity: Record<string, number>;
+  };
   userName: string;
 }) {
   // Hide the hidden Scan Console bucket (works even before migration 2 adds the column).
@@ -48,9 +59,12 @@ export function DashboardClient({
   const [visibleScanResults, setVisibleScanResults] = useState(20);
   const [findings, setFindings] = useState<Finding[]>(findingsInit);
   const [scans, setScans] = useState<Scan[]>(scansInit);
+  const [counts, setCounts] = useState(totals);
   const [toasts, setToasts] = useState<{ id: string; text: string; kind: "ok" | "err" }[]>([]);
   const scanStatus = useRef<Map<string, string>>(new Map(scansInit.map((s) => [s.id, s.status])));
   const router = useRouter();
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshPending = useRef(false);
 
   function pushToast(kind: "ok" | "err", text: string) {
     const id = Math.random().toString(36).slice(2);
@@ -58,7 +72,54 @@ export function DashboardClient({
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
   }
 
-  // Live: scans + findings stream in while you watch.
+  const refreshCounts = async () => {
+    const supabase = createClient();
+    const requests = await Promise.all([
+      supabase.from("targets").select("id", { count: "exact", head: true }).eq("is_console", false),
+      supabase.from("hosts").select("id", { count: "exact", head: true }),
+      supabase.from("hosts").select("id", { count: "exact", head: true }).eq("status", "Live"),
+      supabase.from("findings").select("id", { count: "exact", head: true }),
+      supabase.from("findings").select("id", { count: "exact", head: true }).in("severity", ["Critical", "High"]),
+      supabase.from("scans").select("id", { count: "exact", head: true }),
+      supabase.from("scans").select("id", { count: "exact", head: true }).in("status", ["queued", "running"]),
+      ...(["Critical", "High", "Medium", "Low", "Info"] as const).map((severity) =>
+        supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", severity),
+      ),
+    ]);
+    setCounts({
+      targets: requests[0].count ?? 0,
+      hosts: requests[1].count ?? 0,
+      liveHosts: requests[2].count ?? 0,
+      findings: requests[3].count ?? 0,
+      criticalFindings: requests[4].count ?? 0,
+      scans: requests[5].count ?? 0,
+      activeScans: requests[6].count ?? 0,
+      severity: {
+        Critical: requests[7].count ?? 0,
+        High: requests[8].count ?? 0,
+        Medium: requests[9].count ?? 0,
+        Low: requests[10].count ?? 0,
+        Info: requests[11].count ?? 0,
+      },
+    });
+  };
+
+  const scheduleRefresh = () => {
+    refreshPending.current = true;
+    if (refreshTimer.current) return;
+    refreshTimer.current = setTimeout(async () => {
+      refreshTimer.current = null;
+      if (!refreshPending.current) return;
+      refreshPending.current = false;
+      const supabase = createClient();
+      const { data } = await supabase.from("scans").select("*").order("created_at", { ascending: false }).range(0, 39);
+      if (data) setScans(data);
+      await refreshCounts();
+    }, 1500);
+  };
+
+  // Live updates are coalesced so a busy worker queue cannot trigger a render
+  // for every host/finding/scan row written to Supabase.
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase
@@ -74,18 +135,15 @@ export function DashboardClient({
           );
         }
         scanStatus.current.set(row.id, row.status);
-        setScans((prev) =>
-          [row, ...prev.filter((s) => s.id !== row.id)]
-            .sort((a, b) => b.created_at.localeCompare(a.created_at))
-            .slice(0, 40),
-        );
+        scheduleRefresh();
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "findings" }, (payload) => {
         const row = payload.new as Finding;
-        setFindings((prev) => (prev.some((f) => f.id === row.id) ? prev : [row, ...prev]));
+        scheduleRefresh();
       })
       .subscribe();
     return () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
       supabase.removeChannel(channel);
     };
   }, [userName]);
@@ -141,22 +199,20 @@ export function DashboardClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targets, filter, risk, debouncedSearch, hostsByTarget, findingsByTarget, scansByTarget]);
 
-  const liveHosts = hosts.filter((h) => h.status === "Live").length;
-  const criticalFindings = findings.filter((f) => f.severity === "Critical" || f.severity === "High").length;
-  const activeScans = scans.filter((s) => s.status === "queued" || s.status === "running");
+  const liveHosts = counts.liveHosts;
+  const criticalFindings = counts.criticalFindings;
+  const activeScans = counts.activeScans;
 
   const severityData = useMemo(() => {
-    const dist = { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0 };
-    for (const f of findings) dist[f.severity as keyof typeof dist]++;
-    return Object.entries(dist).map(([label, value]) => ({ label, value, color: SEVERITY_COLORS[label] }));
-  }, [findings]);
+    return Object.entries(counts.severity).map(([label, value]) => ({ label, value, color: SEVERITY_COLORS[label] }));
+  }, [counts.severity]);
 
   const riskScore = useMemo(() => {
-    if (findings.length === 0) return 0;
+    if (counts.findings === 0) return 0;
     const w = { Critical: 25, High: 15, Medium: 8, Low: 3, Info: 0 };
-    const score = findings.reduce((s, f) => s + (w[f.severity as keyof typeof w] ?? 0), 0);
-    return Math.min(100, Math.round((score / (findings.length * 10)) * 100));
-  }, [findings]);
+    const score = Object.entries(counts.severity).reduce((s, [severity, count]) => s + (w[severity as keyof typeof w] ?? 0) * count, 0);
+    return Math.min(100, Math.round((score / (counts.findings * 10)) * 100));
+  }, [counts]);
 
   // Scan activity over the last 14 days.
   const scanSeries = useMemo(() => {
@@ -216,11 +272,11 @@ export function DashboardClient({
               Welcome back, <span className="gradient-text">{userName.split("@")[0]}</span>
             </h2>
             <p className="mt-1 text-xs text-muted">
-              {targets.length} targets · {hosts.length} hosts · {findings.length} findings
-              {activeScans.length > 0 && (
+              {counts.targets} targets · {counts.hosts} hosts · {counts.findings} findings
+              {activeScans > 0 && (
                 <span className="ml-2 inline-flex items-center gap-1.5 text-amber-400">
                   <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
-                  {activeScans.length} scan{activeScans.length > 1 ? "s" : ""} running
+                  {activeScans} scan{activeScans > 1 ? "s" : ""} running
                 </span>
               )}
             </p>
@@ -231,10 +287,10 @@ export function DashboardClient({
 
       {/* KPI row */}
       <div className="animate-fade-in grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard label="Targets" value={targets.length} color="#a855f7" series={[1, 2, 2, 3, targets.length]} />
-        <KpiCard label="Live hosts" value={liveHosts} sub={`${hosts.length} total`} color="#d946ef" series={[2, 3, 5, 4, liveHosts]} />
-        <KpiCard label="Findings" value={findings.length} sub={`${criticalFindings} crit/high`} color="#ec4899" accent={criticalFindings > 0} series={scanSeries} />
-        <KpiCard label="Active scans" value={activeScans.length} sub={`${scans.length} total`} color="#f59e0b" live={activeScans.length > 0} series={scanSeries} />
+        <KpiCard label="Targets" value={counts.targets} color="#a855f7" series={[1, 2, 2, 3, counts.targets]} />
+        <KpiCard label="Live hosts" value={liveHosts} sub={`${counts.hosts} total`} color="#d946ef" series={[2, 3, 5, 4, liveHosts]} />
+        <KpiCard label="Findings" value={counts.findings} sub={`${criticalFindings} crit/high`} color="#ec4899" accent={criticalFindings > 0} series={scanSeries} />
+        <KpiCard label="Active scans" value={activeScans} sub={`${counts.scans} total`} color="#f59e0b" live={activeScans > 0} series={scanSeries} />
       </div>
 
       {/* Charts */}
@@ -242,7 +298,7 @@ export function DashboardClient({
         <div className="card card-hover p-5">
           <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Findings by severity</p>
           <div className="flex items-center gap-5">
-            <Donut data={severityData.filter((d) => d.value > 0)} centerValue={findings.length} centerLabel="findings" />
+            <Donut data={severityData.filter((d) => d.value > 0)} centerValue={counts.findings} centerLabel="findings" />
             <div className="flex-1">
               <BarList data={severityData} />
             </div>
@@ -252,7 +308,7 @@ export function DashboardClient({
         <div className="card card-hover p-5">
           <div className="mb-3 flex items-center justify-between">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Scan activity · 14d</p>
-            <span className="text-[10px] text-muted-dim">{scans.length} total</span>
+            <span className="text-[10px] text-muted-dim">{counts.scans} total</span>
           </div>
           <AreaChart points={scanSeries} height={120} color="#a855f7" />
           <p className="mt-2 text-[10px] text-muted-dim">
@@ -271,7 +327,7 @@ export function DashboardClient({
           <div className="mb-3 flex items-center justify-between">
             <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
               Recent scans
-              {activeScans.length > 0 && <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400 text-amber-400" />}
+              {activeScans > 0 && <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400 text-amber-400" />}
             </p>
             <div className="flex items-center gap-3">
               <select
