@@ -10,6 +10,7 @@ import { RiskScoreGauge } from "@/components/RiskScoreGauge";
 import { Donut, AreaChart, BarList } from "@/components/charts";
 import { ScanRow } from "@/components/ScanRow";
 import { EncryptButton } from "@/components/EncryptButton";
+import { scanRiskScore } from "@/lib/risk";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -39,8 +40,10 @@ export function DashboardClient({
   // Hide the hidden Scan Console bucket (works even before migration 2 adds the column).
   const targets = targetsAll.filter((t) => !t.is_console);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [risk, setRisk] = useState<"All" | "Critical" | "High" | "Medium" | "Low">("All");
+  const [scanSort, setScanSort] = useState("date-desc");
   const [visible, setVisible] = useState(20);
   const [visibleScanResults, setVisibleScanResults] = useState(20);
   const [findings, setFindings] = useState<Finding[]>(findingsInit);
@@ -87,9 +90,19 @@ export function DashboardClient({
     };
   }, [userName]);
 
+  // Lightly debounce the search box so filtering doesn't run on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 200);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const hostsByTarget = useMemo(() => groupBy(hosts, (h) => h.target_id), [hosts]);
   const findingsByTarget = useMemo(() => groupBy(findings, (f) => f.target_id), [findings]);
   const scansByTarget = useMemo(() => groupBy(scans, (s) => s.target_id), [scans]);
+  // Group hosts/findings by the scan that produced them → per-scan risk + counts.
+  const hostsByScan = useMemo(() => groupBy(hosts.filter((h) => h.scan_id), (h) => h.scan_id as string), [hosts]);
+  const findingsByScan = useMemo(() => groupBy(findings.filter((f) => f.scan_id), (f) => f.scan_id as string), [findings]);
+  const targetNameById = useMemo(() => new Map(targets.map((t) => [t.id, t.name])), [targets]);
 
   const categories = useMemo(() => {
     const cats = new Map<string, number>();
@@ -97,37 +110,36 @@ export function DashboardClient({
     return Array.from(cats.entries()).sort((a, b) => b[1] - a[1]);
   }, [targets]);
 
+  // Real per-group risk (0–100) from the group's hosts' risk_score + finding
+  // severity — the same score shown on scan cards, so the filter matches the UI.
+  const groupRisk = (id: string) => scanRiskScore(hostsByTarget.get(id) ?? [], findingsByTarget.get(id) ?? []);
+
   const filtered = useMemo(() => {
     let result = targets;
     if (filter === "High risk") {
-      result = result.filter((t) =>
-        (hostsByTarget.get(t.id) ?? []).some((h) => h.exploitability === "High" || h.exploitability === "Critical"),
-      );
+      // "High risk" tab → groups scoring 60+.
+      result = result.filter((t) => groupRisk(t.id) >= 60);
     } else if (filter !== "All") {
       result = result.filter((t) => t.category === filter);
     }
     if (risk !== "All") {
-      const min = { Critical: 4, High: 3, Medium: 2, Low: 1 }[risk];
-      const hostRank: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1, Info: 0 };
-      const sevRank: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1, Info: 0 };
-      result = result.filter((t) => {
-        const hMax = Math.max(0, ...(hostsByTarget.get(t.id) ?? []).map((h) => hostRank[h.exploitability] ?? 0));
-        const fMax = Math.max(0, ...(findingsByTarget.get(t.id) ?? []).map((f) => sevRank[f.severity] ?? 0));
-        return Math.max(hMax, fMax) >= min;
-      });
+      // Dropdown thresholds on the 0–100 score (Critical 80+, High 60+, Medium 40+, Low 20+).
+      const min = { Critical: 80, High: 60, Medium: 40, Low: 20 }[risk];
+      result = result.filter((t) => groupRisk(t.id) >= min);
     }
-    if (search.trim()) {
-      const q = search.toLowerCase();
+    const q = debouncedSearch.trim().toLowerCase();
+    if (q) {
       result = result.filter((t) => {
         if (t.name.toLowerCase().includes(q) || t.domain?.toLowerCase().includes(q) || t.ip_range?.toLowerCase().includes(q)) return true;
-        if ((hostsByTarget.get(t.id) ?? []).some((h) => h.ip.toLowerCase().includes(q))) return true;
-        if ((findingsByTarget.get(t.id) ?? []).some((f) => f.title.toLowerCase().includes(q))) return true;
+        if ((hostsByTarget.get(t.id) ?? []).some((h) => h.ip.toLowerCase().includes(q) || h.hostname?.toLowerCase().includes(q))) return true;
+        if ((findingsByTarget.get(t.id) ?? []).some((f) => f.title.toLowerCase().includes(q) || f.cve_id?.toLowerCase().includes(q))) return true;
         if ((scansByTarget.get(t.id) ?? []).some((s) => `${s.input} ${s.mode} ${s.status}`.toLowerCase().includes(q))) return true;
         return false;
       });
     }
     return result;
-  }, [targets, filter, risk, search, hostsByTarget, findingsByTarget, scansByTarget]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targets, filter, risk, debouncedSearch, hostsByTarget, findingsByTarget, scansByTarget]);
 
   const liveHosts = hosts.filter((h) => h.status === "Live").length;
   const criticalFindings = findings.filter((f) => f.severity === "Critical" || f.severity === "High").length;
@@ -159,16 +171,33 @@ export function DashboardClient({
     return buckets;
   }, [scans]);
 
+  const scanRiskById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const s of scans) m.set(s.id, scanRiskScore(hostsByScan.get(s.id) ?? [], findingsByScan.get(s.id) ?? []));
+    return m;
+  }, [scans, hostsByScan, findingsByScan]);
+
   const filteredScans = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return scans;
-    return scans.filter((scan) =>
-      [scan.input, scan.mode, scan.status, scan.requested_by_email ?? ""]
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [scans, search]);
+    const q = debouncedSearch.trim().toLowerCase();
+    const base = q
+      ? scans.filter((scan) =>
+          [scan.input, scan.mode, scan.status, scan.requested_by_email ?? "", targetNameById.get(scan.target_id) ?? ""]
+            .join(" ")
+            .toLowerCase()
+            .includes(q),
+        )
+      : scans.slice();
+    // FEATURE 4 — sort finished + running scans by the chosen key/direction.
+    const [key, dirStr] = scanSort.split("-");
+    const dir = dirStr === "asc" ? 1 : -1;
+    base.sort((a, b) => {
+      if (key === "risk") return ((scanRiskById.get(a.id) ?? 0) - (scanRiskById.get(b.id) ?? 0)) * dir;
+      if (key === "findings") return ((findingsByScan.get(a.id)?.length ?? 0) - (findingsByScan.get(b.id)?.length ?? 0)) * dir;
+      if (key === "group") return (targetNameById.get(a.target_id) ?? "").localeCompare(targetNameById.get(b.target_id) ?? "") * dir;
+      return a.created_at.localeCompare(b.created_at) * dir; // date
+    });
+    return base;
+  }, [scans, debouncedSearch, scanSort, scanRiskById, findingsByScan, targetNameById]);
 
   useEffect(() => {
     setVisible(20);
@@ -245,6 +274,21 @@ export function DashboardClient({
               {activeScans.length > 0 && <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400 text-amber-400" />}
             </p>
             <div className="flex items-center gap-3">
+              <select
+                value={scanSort}
+                onChange={(e) => setScanSort(e.target.value)}
+                className="rounded-lg border border-white/10 bg-background px-2 py-1 text-[10px] outline-none focus:border-accent/40"
+                title="Sort scans"
+              >
+                <option value="date-desc">Newest first</option>
+                <option value="date-asc">Oldest first</option>
+                <option value="risk-desc">Risk (high → low)</option>
+                <option value="risk-asc">Risk (low → high)</option>
+                <option value="findings-desc">Findings (most)</option>
+                <option value="findings-asc">Findings (fewest)</option>
+                <option value="group-asc">Group (A → Z)</option>
+                <option value="group-desc">Group (Z → A)</option>
+              </select>
               <span className="text-[10px] text-muted-dim">{filteredScans.length} shown</span>
               <Link href="/console" className="text-[10px] text-accent hover:text-accent-dim">
                 Open console →
@@ -258,7 +302,13 @@ export function DashboardClient({
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
             {filteredScans.slice(0, 20).map((s) => (
-              <ScanRow key={s.id} scan={s} assignTargets={targets.map((target) => ({ id: target.id, name: target.name }))} />
+              <ScanRow
+                key={s.id}
+                scan={s}
+                assignTargets={targets.map((target) => ({ id: target.id, name: target.name }))}
+                scanHosts={hostsByScan.get(s.id) ?? []}
+                scanFindings={findingsByScan.get(s.id) ?? []}
+              />
             ))}
             </div>
           )}
@@ -305,6 +355,8 @@ export function DashboardClient({
                     key={`result-${scan.id}`}
                     scan={scan}
                     assignTargets={targets.map((target) => ({ id: target.id, name: target.name }))}
+                    scanHosts={hostsByScan.get(scan.id) ?? []}
+                    scanFindings={findingsByScan.get(scan.id) ?? []}
                   />
                 ))}
               </div>

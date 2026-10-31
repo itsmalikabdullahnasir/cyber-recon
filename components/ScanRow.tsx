@@ -6,6 +6,7 @@ import { COMMON_PORTS } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Modal } from "@/components/Modal";
+import { scanRiskScore, riskTier } from "@/lib/risk";
 
 // Ordered pipeline stages, with short labels for the progress chips.
 export const STAGE_ORDER = [
@@ -57,7 +58,19 @@ function scanDuration(scan: Scan): string | null {
   return `${m}m ${s % 60}s`;
 }
 
-export function ScanRow({ scan, assignTargets = [] }: { scan: Scan; assignTargets?: Pick<Target, "id" | "name">[] }) {
+export function ScanRow({
+  scan,
+  assignTargets = [],
+  scanHosts,
+  scanFindings,
+}: {
+  scan: Scan;
+  assignTargets?: Pick<Target, "id" | "name">[];
+  // Optional: this scan's already-loaded hosts/findings (passed from the
+  // dashboard), used to show a per-scan risk tile without an extra query.
+  scanHosts?: Host[];
+  scanFindings?: Finding[];
+}) {
   const [busy, setBusy] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [openStage, setOpenStage] = useState<string | null>(null);
@@ -155,6 +168,10 @@ export function ScanRow({ scan, assignTargets = [] }: { scan: Scan; assignTarget
   const stageKeys = STAGE_ORDER.filter((k) => stages[k]);
   const doneStages = stageKeys.filter((k) => ["done", "skipped", "refused"].includes(stages[k].status)).length;
   const currentLabel = scan.stage ? STAGE_LABELS[scan.stage] ?? scan.stage : null;
+  // Per-scan risk score (hosts + findings), shown only when the caller supplied
+  // this scan's rows (dashboard does; console list doesn't).
+  const risk = scanHosts && scanFindings ? scanRiskScore(scanHosts, scanFindings) : null;
+  const riskT = risk !== null ? riskTier(risk) : null;
 
   return (
     <div
@@ -206,6 +223,15 @@ export function ScanRow({ scan, assignTargets = [] }: { scan: Scan; assignTarget
         >
           {displayStatus}
         </span>
+        {riskT && (
+          <span
+            className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${riskT.tile}`}
+            title={`Scan risk ${risk} / 100 (hosts + findings)`}
+          >
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${riskT.dot}`} />
+            risk {risk}
+          </span>
+        )}
         <span className="ml-auto flex items-center gap-2">
           {scan.requested_by_email && (
             <span className="flex items-center gap-1 text-[11px] text-muted-dim" title={`Scanned by ${scan.requested_by_email}`}>
@@ -356,6 +382,8 @@ function ScanDetailModal({ scan: initial, onClose }: { scan: Scan; onClose: () =
   const orderedKeys = STAGE_ORDER.filter((k) => stages[k]);
   const extraKeys = Object.keys(stages).filter((k) => !STAGE_ORDER.includes(k));
   const allKeys = [...orderedKeys, ...extraKeys];
+  const risk = details ? scanRiskScore(details.hosts, details.finds) : null;
+  const riskT = risk !== null ? riskTier(risk) : null;
 
   return (
     <Modal onClose={onClose} ariaLabel={`Scan detail for ${scan.input}`}>
@@ -380,13 +408,24 @@ function ScanDetailModal({ scan: initial, onClose }: { scan: Scan; onClose: () =
               <span>{new Date(scan.created_at).toLocaleString()}</span>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-muted hover:text-foreground"
-            title="Close (Esc)"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2">
+            {riskT && (
+              <span
+                className={`flex h-12 w-12 flex-col items-center justify-center rounded-xl text-sm font-bold ${riskT.tile}`}
+                title={`Scan risk ${risk} / 100 (hosts + findings)`}
+              >
+                {risk}
+                <span className="text-[8px] font-medium uppercase opacity-70">risk</span>
+              </span>
+            )}
+            <button
+              onClick={onClose}
+              className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-muted hover:text-foreground"
+              title="Close (Esc)"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       </div>
 
