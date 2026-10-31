@@ -230,7 +230,7 @@ export function ConsoleClient({
       let queued = 0;
       if (scanAfter && newNames.length) {
         const scanRows = newNames.map((n) => ({
-          target_id: target, input: n, mode: "passive", status: "queued", requested_by_email: userEmail,
+          target_id: target, input: n, mode: "enrich", status: "queued", requested_by_email: userEmail,
         }));
         for (let i = 0; i < scanRows.length; i += 500) {
           await supabase.from("scans").insert(scanRows.slice(i, i + 500));
@@ -243,7 +243,7 @@ export function ConsoleClient({
       await loadFor(target);
       const parts = [`Imported ${subRows.length} new`];
       if (skipped > 0) parts.push(`${skipped} already present (skipped)`);
-      if (queued > 0) parts.push(`${queued} passive scans queued — running one at a time`);
+      if (queued > 0) parts.push(`${queued} enrich scans queued — running one at a time`);
       setNotice({ kind: "ok", text: parts.join(" · ") });
       setInput("");
     } catch (e) {
@@ -270,7 +270,7 @@ export function ConsoleClient({
       }
       const supabase = createClient();
       const rows = targets.map((t) => ({
-        target_id: groupId, input: t, mode: "passive", status: "queued", requested_by_email: userEmail,
+        target_id: groupId, input: t, mode: "enrich", status: "queued", requested_by_email: userEmail,
       }));
       for (let i = 0; i < rows.length; i += 500) {
         await supabase.from("scans").insert(rows.slice(i, i + 500));
@@ -278,9 +278,29 @@ export function ConsoleClient({
       }
       await refreshPending(groupId);
       await loadFor(groupId);
-      setNotice({ kind: "ok", text: `Queued ${rows.length} passive scans. They run one at a time — leave it; you'll get a notification per host.` });
+      setNotice({ kind: "ok", text: `Queued ${rows.length} fast enrich scans. They run one at a time — leave it; you'll get a notification per host.` });
     } catch (e) {
       setNotice({ kind: "err", text: e instanceof Error ? e.message : "Could not queue scans" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stopQueue() {
+    setBusy(true);
+    try {
+      const supabase = createClient();
+      // Cancel every queued scan in this group (a running one finishes on its own).
+      await supabase
+        .from("scans")
+        .update({ status: "failed", error: "cancelled by user" })
+        .eq("target_id", groupId)
+        .eq("status", "queued");
+      await refreshPending(groupId);
+      await loadFor(groupId);
+      setNotice({ kind: "ok", text: "Queue stopped — pending scans cancelled." });
+    } catch (e) {
+      setNotice({ kind: "err", text: e instanceof Error ? e.message : "Could not stop the queue" });
     } finally {
       setBusy(false);
     }
@@ -339,11 +359,17 @@ export function ConsoleClient({
             <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
             <path className="opacity-90" d="M12 2a10 10 0 0110 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
           </svg>
-          <div className="text-xs text-amber-200">
+          <div className="flex-1 text-xs text-amber-200">
             <b>Queue running — {pending.toLocaleString()} scan{pending === 1 ? "" : "s"} remaining.</b>{" "}
-            Scans run one at a time on the VM. New scans are disabled until this batch finishes; you can keep using the app and
-            you&apos;ll get a notification as each host completes.
+            Scans run one at a time on the VM. You can keep using the app and get a notification as each host completes.
           </div>
+          <button
+            onClick={stopQueue}
+            disabled={busy}
+            className="shrink-0 rounded-lg border border-rose-500/40 bg-rose-500/15 px-3 py-1.5 text-xs font-semibold text-rose-200 transition-colors hover:bg-rose-500/25 disabled:opacity-50"
+          >
+            ■ Stop queue
+          </button>
         </div>
       )}
 

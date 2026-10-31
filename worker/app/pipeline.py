@@ -107,10 +107,15 @@ class Pipeline:
 
         # a + b: subdomains and DNS (domains only)
         if kind == "domain":
-            self.stage("subfinder", "running")
-            found = subfinder.run(value, self.workdir)
+            if self.mode == "enrich":
+                # Known host: skip subfinder, just confirm + probe this name.
+                self.stage("subfinder", "skipped", detail="enrich mode")
+                found = [{"name": value, "sources": ["input"]}]
+            else:
+                self.stage("subfinder", "running")
+                found = subfinder.run(value, self.workdir)
+                self.stage("subfinder", "done", count=len(found))
             self._upsert_subdomains(found)
-            self.stage("subfinder", "done", count=len(found))
 
             self.stage("dnsx", "running")
             resolved = dnsx.run([f["name"] for f in found], self.workdir)
