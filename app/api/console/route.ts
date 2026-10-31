@@ -108,7 +108,7 @@ export async function POST(request: Request) {
         results.push({
           target: parsed.value,
           status: "refused",
-          error: "tick 'I'm authorized' to run an active scan on this",
+          error: "add this target to the selected group's authorized scope before running an active scan",
         });
         continue;
       }
