@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import type { Scan } from "@/lib/types";
+import { createClient } from "@/lib/supabase/client";
 
 // Ordered pipeline stages, with short labels for the progress chips.
 export const STAGE_ORDER = [
@@ -38,9 +40,60 @@ function stageCount(st: Record<string, unknown>): number | undefined {
   return undefined;
 }
 
+// Human-readable elapsed time for a scan (recomputed on each render, so it
+// refreshes whenever Realtime pushes a new stage for a running scan).
+function scanDuration(scan: Scan): string | null {
+  const start = scan.started_at ?? scan.created_at;
+  const end = scan.finished_at ?? (scan.status === "running" ? new Date().toISOString() : null);
+  if (!start || !end) return null;
+  const ms = new Date(end).getTime() - new Date(start).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${s % 60}s`;
+}
+
 export function ScanRow({ scan }: { scan: Scan }) {
+  const [busy, setBusy] = useState(false);
+
+  async function updateScan(values: Record<string, unknown>, failMsg: string) {
+    setBusy(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.from("scans").update(values).eq("id", scan.id);
+      if (error) alert(`${failMsg}: ${error.message}`);
+    } catch (e) {
+      alert(`${failMsg}: ${e instanceof Error ? e.message : "unknown error"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Stop this one scan. The worker re-reads the row status at each stage
+  // boundary and aborts the scan in progress; a queued row simply never gets
+  // claimed. Either way the record is kept (status failed, "cancelled by user").
+  const stop = () =>
+    updateScan(
+      { status: "failed", error: "cancelled by user", finished_at: new Date().toISOString() },
+      "Could not stop the scan",
+    );
+
+  // Resume / re-run this exact scan: re-queue it and clear prior progress. The
+  // worker's poller claims it again in order.
+  const rerun = () =>
+    updateScan(
+      { status: "queued", error: null, stage: null, stages: {}, started_at: null, finished_at: null },
+      "Could not re-queue the scan",
+    );
+
   const stages = scan.stages || {};
   const running = scan.status === "running" || scan.status === "queued";
+  // A user-cancelled scan is stored as failed with this error. Show it as its
+  // own "stopped" state so the record reads clearly (not a real failure).
+  const cancelled = scan.status === "failed" && /cancel|stopped/i.test(scan.error ?? "");
+  const displayStatus = cancelled ? "stopped" : scan.status;
+  const duration = scanDuration(scan);
   const stageKeys = STAGE_ORDER.filter((k) => stages[k]);
   const doneStages = stageKeys.filter((k) => ["done", "skipped", "refused"].includes(stages[k].status)).length;
   const currentLabel = scan.stage ? STAGE_LABELS[scan.stage] ?? scan.stage : null;
@@ -72,14 +125,16 @@ export function ScanRow({ scan }: { scan: Scan }) {
         <span className="font-mono">{scan.input}</span>
         <span
           className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase ${
-            scan.status === "done"
+            displayStatus === "done"
               ? "text-emerald-400"
-              : scan.status === "failed"
-                ? "text-rose-400"
-                : "text-amber-400"
+              : displayStatus === "stopped"
+                ? "text-zinc-400"
+                : displayStatus === "failed"
+                  ? "text-rose-400"
+                  : "text-amber-400"
           }`}
         >
-          {scan.status}
+          {displayStatus}
         </span>
         <span className="ml-auto text-[10px] text-muted-dim">{new Date(scan.created_at).toLocaleString()}</span>
       </div>
@@ -102,7 +157,33 @@ export function ScanRow({ scan }: { scan: Scan }) {
           );
         })}
       </div>
-      {scan.error && <p className="mt-2 text-[11px] text-danger">{scan.error}</p>}
+      {scan.error && (
+        <p className={`mt-2 text-[11px] ${cancelled ? "text-muted-dim" : "text-danger"}`}>{scan.error}</p>
+      )}
+
+      <div className="mt-2 flex items-center gap-2">
+        {(scan.status === "running" || scan.status === "queued") && (
+          <button
+            onClick={stop}
+            disabled={busy}
+            className="rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-200 transition-colors hover:bg-rose-500/20 disabled:opacity-50"
+            title="Stop this scan. A running scan stops at its next stage; the record is kept."
+          >
+            {busy ? "…" : "■ Stop"}
+          </button>
+        )}
+        {(scan.status === "failed" || scan.status === "done") && (
+          <button
+            onClick={rerun}
+            disabled={busy}
+            className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+            title={scan.status === "done" ? "Run this scan again" : "Re-queue and resume this scan"}
+          >
+            {busy ? "…" : scan.status === "done" ? "↻ Re-scan" : "↻ Resume"}
+          </button>
+        )}
+        {duration && <span className="ml-auto text-[10px] text-muted-dim">⏱ {duration}</span>}
+      </div>
     </div>
   );
 }
