@@ -7,6 +7,11 @@ export const maxDuration = 25;
 
 type Mode = "passive" | "full";
 const MAX_BULK = 50;
+interface PipelineModule {
+  id: string;
+  enabled: boolean;
+  config?: Record<string, unknown>;
+}
 
 interface ScopeEntry {
   kind: "domain" | "wildcard" | "ip" | "cidr";
@@ -26,7 +31,7 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  let body: { targets?: unknown; mode?: Mode; group_id?: string; authorize?: boolean };
+  let body: { targets?: unknown; mode?: Mode; group_id?: string; authorize?: boolean; profile_id?: string | null; pipeline?: PipelineModule[] | null };
   try {
     body = await request.json();
   } catch {
@@ -34,6 +39,9 @@ export async function POST(request: Request) {
   }
   const mode: Mode = body.mode === "full" ? "full" : "passive";
   const authorize = body.authorize === true;
+  const pipeline = Array.isArray(body.pipeline)
+    ? body.pipeline.filter((m): m is PipelineModule => !!m && typeof m.id === "string" && typeof m.enabled === "boolean")
+    : null;
 
   // Accept: ["a","b"] or [{target,mode}] or a single string.
   const rawList = normalizeTargets(body.targets);
@@ -114,6 +122,8 @@ export async function POST(request: Request) {
         mode: itemMode,
         status: "queued",
         requested_by_email: user.email ?? null,
+        profile_id: body.profile_id || null,
+        pipeline,
       })
       .select("id")
       .single();
@@ -126,7 +136,7 @@ export async function POST(request: Request) {
       const res = await fetch(`${workerUrl.replace(/\/$/, "")}/scan`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Worker-Secret": workerSecret },
-        body: JSON.stringify({ target: parsed.value, scan_id: scan.id, mode: itemMode }),
+        body: JSON.stringify({ target: parsed.value, scan_id: scan.id, mode: itemMode, pipeline }),
         signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) {

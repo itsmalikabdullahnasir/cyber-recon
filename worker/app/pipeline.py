@@ -60,6 +60,12 @@ class Pipeline:
         self.scan_id: str = scan["id"]
         self.target_id: str = scan["target_id"]
         self.mode: str = scan["mode"]
+        configured_pipeline = scan.get("pipeline")
+        self.pipeline_ids: set[str] | None = (
+            {item["id"] for item in configured_pipeline if isinstance(item, dict) and item.get("enabled") and isinstance(item.get("id"), str)}
+            if isinstance(configured_pipeline, list)
+            else None
+        )
         self.email: str | None = scan.get("requested_by_email")
         self.stages: dict = dict(scan.get("stages") or {})
         self.s = get_settings()
@@ -68,6 +74,10 @@ class Pipeline:
         self.subs: dict[str, dict] = {}
         self.hosts: dict[str, dict] = {}
         self.findings_new = 0
+
+    def _enabled(self, module_id: str) -> bool:
+        """Return whether a selected pipeline includes a module."""
+        return self.pipeline_ids is None or module_id in self.pipeline_ids
 
     # -- bookkeeping ---------------------------------------------------------
     def stage(self, name: str, status: str, **info) -> None:
@@ -134,7 +144,7 @@ class Pipeline:
         self._load_existing()
 
         # a + b: subdomains and DNS (domains only)
-        if kind == "domain":
+        if kind == "domain" and self._enabled("subfinder"):
             if self.mode == "enrich":
                 # Known host: skip subfinder, just confirm + probe this name.
                 self.stage("subfinder", "skipped", detail="enrich mode")
@@ -145,21 +155,29 @@ class Pipeline:
                 self.stage("subfinder", "done", count=len(found))
             self._upsert_subdomains(found)
 
-            self.stage("dnsx", "running")
-            resolved = dnsx.run([f["name"] for f in found], self.workdir)
-            self._apply_dns(resolved)
-            self.stage("dnsx", "done", count=len(resolved), unresolved=len(found) - len(resolved))
+            if self._enabled("dnsx"):
+                self.stage("dnsx", "running")
+                resolved = dnsx.run([f["name"] for f in found], self.workdir)
+                self._apply_dns(resolved)
+                self.stage("dnsx", "done", count=len(resolved), unresolved=len(found) - len(resolved))
+            else:
+                resolved = {f["name"]: [] for f in found}
+                self.stage("dnsx", "skipped", detail="disabled by selected pipeline")
             probe_inputs = sorted(resolved)
         else:
-            self.stage("subfinder", "skipped", detail="input is an IP")
+            self.stage("subfinder", "skipped", detail="input is an IP or disabled")
             self.stage("dnsx", "skipped", detail="input is an IP")
             resolved = {}
             probe_inputs = [value]
 
         # c + d: httpx + CDN flag -> hosts
-        self.stage("httpx", "running")
-        probes, warning = http_probe.run(probe_inputs, self.workdir)
-        self._apply_probes(probes, resolved)
+        if self._enabled("httpx"):
+            self.stage("httpx", "running")
+            probes, warning = http_probe.run(probe_inputs, self.workdir)
+            self._apply_probes(probes, resolved)
+        else:
+            probes, warning = {}, None
+            self.stage("httpx", "skipped", detail="disabled by selected pipeline")
         if kind == "ip" and value not in probes:
             # No HTTP answer. Still record it; nmap decides whether anything is open.
             self._upsert_hosts({value: {"status": "Filtered"}})
@@ -179,16 +197,20 @@ class Pipeline:
         # c2 + c3: whatweb (deeper tech) + wafw00f (WAF). Passive tier: light,
         # runs on any input. whatweb output is merged into probe tech so the
         # CVE match below sees it.
-        self._fingerprint(probes)
+        if self._enabled("fingerprint") or self._enabled("whatweb") or self._enabled("wafw00f"):
+            self._fingerprint(probes)
+        else:
+            self.stage("whatweb", "skipped", detail="disabled by selected pipeline")
+            self.stage("wafw00f", "skipped", detail="disabled by selected pipeline")
 
         # f (passive part): CVEs from httpx + whatweb tech versions
         cve_ready = cve_db.is_ready()
-        if cve_ready:
+        if cve_ready and self._enabled("cve"):
             self.stage("cve", "running", source="httpx")
             n = self._cves_from_tech(probes)
             self.stage("cve", "done" if self.mode == "passive" else "running", count=n, source="httpx")
         else:
-            self.stage("cve", "skipped", detail="local CVE DB not synced yet: run `python -m app.cve_db sync`")
+            self.stage("cve", "skipped", detail="disabled by selected pipeline or local CVE DB not synced")
 
         if self.mode != "full":
             self.stage("nmap", "skipped", detail="passive mode")
@@ -208,6 +230,7 @@ class Pipeline:
             return
 
         # e: nmap
+        nmap_enabled = self._enabled("nmap")
         names_by_ip: dict[str, list[str]] = defaultdict(list)
         for name, p in probes.items():
             for ip in p["ips"]:
@@ -229,10 +252,13 @@ class Pipeline:
         capped = allowed[self.s.max_heavy_hosts:]
         allowed = allowed[: self.s.max_heavy_hosts]
 
-        self.stage("nmap", "running", queued=len(allowed), skipped_cdn=len(skipped_cdn),
-                   skipped_out_of_scope=len(skipped_scope), skipped_cap=len(capped))
+        if not nmap_enabled:
+            self.stage("nmap", "skipped", detail="disabled by selected pipeline")
+        else:
+            self.stage("nmap", "running", queued=len(allowed), skipped_cdn=len(skipped_cdn),
+                       skipped_out_of_scope=len(skipped_scope), skipped_cap=len(capped))
         errors = []
-        for i, ip in enumerate(allowed, 1):
+        for i, ip in enumerate(allowed if nmap_enabled else [], 1):
             try:
                 result = nmap.run(ip, self.workdir)
             except ToolError as e:
@@ -241,9 +267,10 @@ class Pipeline:
             self._apply_nmap(ip, result)
             self.stage("nmap", "running", done=i, queued=len(allowed), skipped_cdn=len(skipped_cdn),
                        skipped_out_of_scope=len(skipped_scope), skipped_cap=len(capped))
-        self.stage("nmap", "done", scanned=len(allowed) - len(errors), skipped_cdn=len(skipped_cdn),
-                   skipped_out_of_scope=len(skipped_scope), skipped_cap=len(capped),
-                   **({"errors": errors[:10]} if errors else {}))
+        if nmap_enabled:
+            self.stage("nmap", "done", scanned=len(allowed) - len(errors), skipped_cdn=len(skipped_cdn),
+                       skipped_out_of_scope=len(skipped_scope), skipped_cap=len(capped),
+                       **({"errors": errors[:10]} if errors else {}))
 
         # f (active part): CVEs from nmap versions
         if cve_ready:
@@ -261,8 +288,15 @@ class Pipeline:
         inscope: list[tuple[str, dict]] = [(n, p) for n, p in candidates if not p["is_cdn"]][: self.s.max_heavy_hosts]
         urls = [self._url_for(name, p) for name, p in inscope]
 
-        # g: nuclei
-        if not urls:
+        # g: testssl (optional TLS audit), then nuclei
+        if self.pipeline_ids is not None and self._enabled("testssl"):
+            self._run_testssl(inscope)
+        else:
+            self.stage("testssl", "skipped", detail="disabled by selected pipeline")
+
+        if not self._enabled("nuclei"):
+            self.stage("nuclei", "skipped", detail="disabled by selected pipeline")
+        elif not urls:
             self.stage("nuclei", "skipped", detail=f"no non-CDN in-scope hosts ({cdn_skipped} CDN skipped)")
         else:
             self.stage("nuclei", "running", urls=len(urls), cdn_skipped=cdn_skipped)
@@ -274,13 +308,13 @@ class Pipeline:
                 self.stage("nuclei", "skipped", detail=str(e))
 
         # h: feroxbuster (content/directory discovery)
-        if self.s.enable_feroxbuster:
+        if self._enabled("dirs") and self.s.enable_feroxbuster:
             self._run_feroxbuster(inscope)
         else:
-            self.stage("dirs", "skipped", detail="disabled")
+            self.stage("dirs", "skipped", detail="disabled by selected pipeline or VM setting")
 
         # i: nikto (web-server misconfig). Off by default (noisy/slow).
-        if self.s.enable_nikto:
+        if self._enabled("nikto") and self.s.enable_nikto:
             self._run_nikto(inscope)
         else:
             self.stage("nikto", "skipped", detail="disabled (set ENABLE_NIKTO=true)")

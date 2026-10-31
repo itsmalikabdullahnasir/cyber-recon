@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Finding, Host, Scan, ScopeEntry, Subdomain, Target } from "@/lib/types";
+import type { Finding, Host, ModuleRegistry, PipelineModule, PipelineProfile, Scan, ScopeEntry, Subdomain, Target } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { ScopeManager } from "@/components/ScopeManager";
 import { ReconResults } from "@/components/ReconResults";
@@ -37,6 +37,9 @@ export function ConsoleClient({
   const [bulk, setBulk] = useState(false);
   const [mode, setMode] = useState<Mode>("passive");
   const [authorized, setAuthorized] = useState(false);
+  const [pipelineRegistry, setPipelineRegistry] = useState<ModuleRegistry | null>(null);
+  const [pipelineProfiles, setPipelineProfiles] = useState<PipelineProfile[]>([]);
+  const [selectedPipeline, setSelectedPipeline] = useState("builtin:basic_passive");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -48,6 +51,46 @@ export function ConsoleClient({
   const [pending, setPending] = useState(0);
   const [failed, setFailed] = useState(0);
   const scanStatus = useRef<Map<string, string>>(new Map(initialScans.map((s) => [s.id, s.status])));
+
+  useEffect(() => {
+    Promise.all([fetch("/api/modules"), fetch("/api/pipelines")])
+      .then(async ([modulesRes, profilesRes]) => {
+        if (!modulesRes.ok || !profilesRes.ok) throw new Error("Could not load scan pipelines");
+        const [modules, profiles] = await Promise.all([modulesRes.json(), profilesRes.json()]);
+        setPipelineRegistry(modules);
+        setPipelineProfiles(profiles.profiles ?? []);
+      })
+      .catch(() => setNotice({ kind: "err", text: "Could not load scan pipelines" }));
+  }, []);
+
+  const selectedPipelineData = useMemo(() => {
+    if (selectedPipeline.startsWith("builtin:")) {
+      const key = selectedPipeline.slice("builtin:".length);
+      const profile = pipelineRegistry?.profiles?.[key];
+      return profile ? { name: profile.name, description: profile.description, modules: profile.modules.map((id) => ({ id, enabled: true })), profileId: null } : null;
+    }
+    const profile = pipelineProfiles.find((p) => p.id === selectedPipeline);
+    return profile ? { name: profile.name, description: profile.description, modules: profile.modules, profileId: profile.id } : null;
+  }, [pipelineProfiles, pipelineRegistry, selectedPipeline]);
+
+  const pipelineModuleNames = useMemo(() => {
+    const names = new Map((pipelineRegistry?.modules ?? []).map((m) => [m.id, m.name]));
+    return selectedPipelineData?.modules.filter((m) => m.enabled).map((m) => names.get(m.id) ?? m.id) ?? [];
+  }, [pipelineRegistry, selectedPipelineData]);
+
+  function chooseMode(next: Mode) {
+    setMode(next);
+    setSelectedPipeline(next === "passive" ? "builtin:basic_passive" : "builtin:basic_full");
+  }
+
+  function choosePipeline(value: string) {
+    setSelectedPipeline(value);
+    const modules = value.startsWith("builtin:")
+      ? pipelineRegistry?.profiles?.[value.slice("builtin:".length)]?.modules ?? []
+      : pipelineProfiles.find((p) => p.id === value)?.modules.map((m) => m.id) ?? [];
+    const active = (pipelineRegistry?.modules ?? []).some((m) => modules.includes(m.id) && m.tier === "active");
+    setMode(active ? "full" : "passive");
+  }
 
   const refreshPending = useCallback(async (id: string) => {
     const supabase = createClient();
@@ -178,7 +221,14 @@ export function ConsoleClient({
       const res = await fetch("/api/console", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, targets: batch, group_id: target, authorize: authorized }),
+        body: JSON.stringify({
+          mode,
+          targets: batch,
+          group_id: target,
+          authorize: authorized,
+          profile_id: selectedPipelineData?.profileId ?? null,
+          pipeline: selectedPipelineData?.modules ?? null,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -466,9 +516,25 @@ export function ConsoleClient({
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <div className="seg">
-            <button onClick={() => setMode("passive")} className="seg-item" data-active={mode === "passive"}>Passive</button>
-            <button onClick={() => setMode("full")} className="seg-item" data-active={mode === "full"}>Full (active)</button>
+            <button onClick={() => chooseMode("passive")} className="seg-item" data-active={mode === "passive"}>Passive</button>
+            <button onClick={() => chooseMode("full")} className="seg-item" data-active={mode === "full"}>Full (active)</button>
           </div>
+          <label className="flex items-center gap-2 text-[11px] text-muted">
+            <span>Pipeline</span>
+            <select
+              value={selectedPipeline}
+              onChange={(e) => choosePipeline(e.target.value)}
+              className="max-w-[230px] rounded-md border border-white/10 bg-background px-2 py-1.5 text-[11px] outline-none focus:border-accent/40"
+            >
+              {pipelineRegistry && Object.entries(pipelineRegistry.profiles).map(([key, profile]) => (
+                <option key={`builtin:${key}`} value={`builtin:${key}`}>{profile.name}</option>
+              ))}
+              {pipelineProfiles.length > 0 && <option disabled>──────── Saved pipelines ────────</option>}
+              {pipelineProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>{profile.name}</option>
+              ))}
+            </select>
+          </label>
           <button
             onClick={launch}
             disabled={busy || locked || parsed.length === 0 || (mode === "full" && !authorized)}
@@ -500,9 +566,8 @@ export function ConsoleClient({
         </div>
 
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-dim">
-          <span>{mode === "passive" ? "Passive" : "Full"}:</span>
-          <span>subdomains → DNS → HTTP probe → whatweb/WAF → CVE-by-version</span>
-          {mode === "full" && <span className="text-rose-400/80">→ nmap → dir brute → nuclei</span>}
+          <span>{selectedPipelineData?.name ?? (mode === "passive" ? "Passive" : "Full")}:</span>
+          <span>{pipelineModuleNames.length ? pipelineModuleNames.join(" → ") : "Loading pipeline modules…"}</span>
         </div>
 
         <details className="group mt-2">
@@ -512,7 +577,7 @@ export function ConsoleClient({
           <div className="mt-2 flex flex-col gap-1.5 rounded-lg border border-white/5 bg-white/[0.02] p-3 text-[11px] text-muted">
             <p><span className="font-semibold text-indigo-300">Passive</span> — read-only recon: finds subdomains, resolves DNS, probes HTTP, fingerprints the tech stack, and matches known CVEs by version. Safe on anything.</p>
             <p><span className="font-semibold text-accent">Enrich</span> — a faster Passive for hosts you already have (used by bulk Import &amp; Scan). Skips subdomain discovery and just enriches each host: DNS + HTTP + tech + CVE. ~3s each instead of ~30s.</p>
-            <p><span className="font-semibold text-rose-300">Full</span> — Passive plus <span className="text-rose-300">active attacks</span>: nmap port scan, TLS audit, directory brute-force, and nuclei vulnerability templates. Requires the authorization checkbox.</p>
+            <p><span className="font-semibold text-rose-300">Full</span> — uses the selected pipeline and may include active attacks such as nmap, TLS audit, directory brute-force, and nuclei. Requires the authorization checkbox.</p>
           </div>
         </details>
 
