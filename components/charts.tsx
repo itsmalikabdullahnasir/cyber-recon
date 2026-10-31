@@ -102,67 +102,78 @@ export function AreaChart({
   const w = 100;
   const max = Math.max(1, ...points);
   const n = points.length;
+  const pad = 4;
   const coords = points.map((p, i) => {
-    const x = n <= 1 ? 0 : (i / (n - 1)) * w;
-    const y = height - (p / max) * (height - 6) - 3;
+    const x = n <= 1 ? w / 2 : (i / (n - 1)) * w;
+    const y = height - (p / max) * (height - pad * 2) - pad;
     return [x, y] as const;
   });
-  const line = smoothPath(coords);
-  const area = coords.length ? `${line} L${w},${height} L0,${height} Z` : "";
+  const line = coords.length ? smoothPath(coords) : "";
+  const area = line ? `${line} L${w},${height} L0,${height} Z` : "";
   const last = coords[coords.length - 1];
   const [hovered, setHovered] = useState<number | null>(null);
 
+  // The marker tracks the hovered point, or the latest point at rest.
+  const markIdx = hovered ?? n - 1;
+  const mark = coords[markIdx];
+  // Position overlays as percentages of the box. The SVG paths are stretched
+  // with preserveAspectRatio="none", but these HTML overlays are not — so dots
+  // stay perfectly round instead of smearing into ellipses.
+  const pctX = (v: number) => `${Math.min(Math.max((v / w) * 100, 0), 100)}%`;
+  const pctY = (v: number) => `${Math.min(Math.max((v / height) * 100, 0), 100)}%`;
+
   return (
-    <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" className={`w-full ${className}`} style={{ height, overflow: "visible" }}>
-      <defs>
-        <linearGradient id={`g-${id}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.4" />
-          <stop offset="60%" stopColor={color} stopOpacity="0.08" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {area && <path d={area} fill={`url(#g-${id})`} />}
-      {line && (
-        <path
-          d={line}
-          className="chart-line"
-          pathLength={100}
-          fill="none"
-          stroke={color}
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-          style={{ filter: `drop-shadow(0 0 3px ${color}88)` }}
+    <div className={`relative w-full ${className}`} style={{ height }}>
+      <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" className="h-full w-full">
+        <defs>
+          <linearGradient id={`g-${id}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {area && <path d={area} fill={`url(#g-${id})`} />}
+        {line && (
+          <path
+            d={line}
+            fill="none"
+            stroke={color}
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
+      </svg>
+
+      {/* Round marker (HTML overlay — cannot be stretched by the SVG scaling). */}
+      {mark && (
+        <span
+          className="pointer-events-none absolute z-10 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+          style={{ left: pctX(mark[0]), top: pctY(mark[1]), background: color, boxShadow: `0 0 0 3px ${color}33` }}
         />
       )}
-      {last && (
-        <circle cx={last[0]} cy={last[1]} r="2.2" fill={color} vectorEffect="non-scaling-stroke" style={{ filter: `drop-shadow(0 0 4px ${color})` }}>
-          <title>{`Latest: ${points[points.length - 1] ?? 0}`}</title>
-        </circle>
+
+      {/* Invisible hover columns, one per point, so the whole width is hoverable. */}
+      <div className="absolute inset-0 flex">
+        {coords.map((_, i) => (
+          <div
+            key={i}
+            className="h-full flex-1 cursor-help"
+            onMouseEnter={() => setHovered(i)}
+            onMouseLeave={() => setHovered(null)}
+          />
+        ))}
+      </div>
+
+      {hovered !== null && coords[hovered] && (
+        <div
+          className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border border-white/10 bg-surface-raised px-1.5 py-0.5 text-[10px] font-semibold text-foreground shadow-lg"
+          style={{ left: pctX(coords[hovered][0]), top: pctY(coords[hovered][1]), marginTop: -8 }}
+        >
+          {points[hovered]}
+        </div>
       )}
-      {coords.map((point, index) => (
-        <circle
-          key={index}
-          cx={point[0]}
-          cy={point[1]}
-          r="5"
-          fill={hovered === index ? color : "transparent"}
-          stroke={hovered === index ? color : "transparent"}
-          strokeWidth="1"
-          className="cursor-help"
-          onMouseEnter={() => setHovered(index)}
-          onMouseLeave={() => setHovered(null)}
-        />
-      ))}
-      {hovered !== null && (
-        <foreignObject x={`${Math.min(Math.max(coords[hovered][0] - 12, 0), 76)}%`} y="0" width="24" height="22">
-          <div className="rounded border border-white/10 bg-surface-raised px-1 py-0.5 text-center text-[8px] text-foreground shadow-lg">
-            {points[hovered]}
-          </div>
-        </foreignObject>
-      )}
-    </svg>
+    </div>
   );
 }
 
