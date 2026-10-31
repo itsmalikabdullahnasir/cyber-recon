@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { Scan, Host, Subdomain, Finding, Target } from "@/lib/types";
 import { COMMON_PORTS } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
@@ -303,8 +303,11 @@ export function ScanRow({ scan, assignTargets = [] }: { scan: Scan; assignTarget
 // breakdown (untruncated), pipeline config, result counts and run metadata, and
 // stays live for running scans via a Realtime subscription on the scans row.
 function ScanDetailModal({ scan: initial, onClose }: { scan: Scan; onClose: () => void }) {
+  const baseId = useId();
   const [scan, setScan] = useState<Scan>(initial);
-  const [counts, setCounts] = useState<{ hosts: number; subs: number; finds: number } | null>(null);
+  const [details, setDetails] = useState<ScanDetails | null>(null);
+  // Single-open accordion: only one stage panel is expanded at a time.
+  const [openStage, setOpenStage] = useState<string | null>(null);
 
   // Keep the modal live: running scans push new stages as they complete.
   useEffect(() => {
@@ -322,17 +325,23 @@ function ScanDetailModal({ scan: initial, onClose }: { scan: Scan; onClose: () =
     };
   }, [initial.id]);
 
-  // Result counts (re-pulled when status changes, e.g. once the scan finishes).
+  // Load this scan's real results once (and again when it finishes) so the count
+  // tiles AND every expandable stage panel read from the same in-memory data —
+  // no extra round-trip per stage opened.
   useEffect(() => {
     let cancelled = false;
     const supabase = createClient();
     Promise.all([
-      supabase.from("hosts").select("id", { count: "exact", head: true }).eq("scan_id", initial.id),
-      supabase.from("subdomains").select("id", { count: "exact", head: true }).eq("scan_id", initial.id),
-      supabase.from("findings").select("id", { count: "exact", head: true }).eq("scan_id", initial.id),
+      supabase.from("hosts").select("*").eq("scan_id", initial.id),
+      supabase.from("subdomains").select("*").eq("scan_id", initial.id),
+      supabase.from("findings").select("*").eq("scan_id", initial.id),
     ]).then(([h, s, f]) => {
       if (cancelled) return;
-      setCounts({ hosts: h.count ?? 0, subs: s.count ?? 0, finds: f.count ?? 0 });
+      setDetails({
+        hosts: (h.data as Host[]) ?? [],
+        subs: (s.data as Subdomain[]) ?? [],
+        finds: (f.data as Finding[]) ?? [],
+      });
     });
     return () => {
       cancelled = true;
@@ -382,11 +391,11 @@ function ScanDetailModal({ scan: initial, onClose }: { scan: Scan; onClose: () =
       </div>
 
       <div className="max-h-[70vh] space-y-5 overflow-y-auto p-5">
-        {counts && (
+        {details && (
           <div className="grid grid-cols-3 gap-2">
-            <StatMini label="Hosts" value={counts.hosts} />
-            <StatMini label="Subdomains" value={counts.subs} />
-            <StatMini label="Findings" value={counts.finds} />
+            <StatMini label="Hosts" value={details.hosts.length} />
+            <StatMini label="Subdomains" value={details.subs.length} />
+            <StatMini label="Findings" value={details.finds.length} />
           </div>
         )}
 
@@ -425,23 +434,54 @@ function ScanDetailModal({ scan: initial, onClose }: { scan: Scan; onClose: () =
                 const status = String(st.status ?? "");
                 const at = typeof st.at === "string" ? new Date(st.at).toLocaleTimeString() : null;
                 const meta = Object.entries(st).filter(([mk]) => mk !== "status" && mk !== "at");
+                const count = stageCount(st);
+                const expanded = openStage === k;
+                const panelId = `${baseId}-stage-${k}`;
                 return (
-                  <div key={k} className="rounded-lg border border-white/5 bg-background/40 p-2.5 text-xs">
-                    <div className="flex items-center gap-2">
+                  <div key={k} className="overflow-hidden rounded-lg border border-white/5 bg-background/40">
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      aria-controls={panelId}
+                      onClick={() => setOpenStage(expanded ? null : k)}
+                      className="flex w-full items-center gap-2 p-2.5 text-left text-xs transition-colors hover:bg-white/[0.04]"
+                    >
                       <span className={`inline-block h-1.5 w-1.5 rounded-full ${STATUS_DOT[status] ?? "bg-zinc-600"}`} />
                       <span className="font-medium">{STAGE_LABELS[k] ?? k}</span>
                       <span className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-dim">
                         {status}
                       </span>
-                      {at && <span className="ml-auto text-[10px] text-muted-dim">{at}</span>}
-                    </div>
-                    {meta.length > 0 && (
-                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
-                        {meta.map(([mk, v]) => (
-                          <span key={mk} className="text-[10px] text-muted-dim">
-                            {mk.replace(/_/g, " ")}: <span className="text-foreground">{formatStageValue(v)}</span>
-                          </span>
-                        ))}
+                      {count !== undefined && <span className="text-[10px] text-muted-dim">{count}</span>}
+                      <span className="ml-auto flex items-center gap-2">
+                        {at && <span className="text-[10px] text-muted-dim">{at}</span>}
+                        <svg
+                          className={`h-3.5 w-3.5 shrink-0 text-muted-dim transition-transform ${expanded ? "rotate-180" : ""}`}
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          aria-hidden="true"
+                        >
+                          <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </span>
+                    </button>
+                    {expanded && (
+                      <div id={panelId} role="region" className="border-t border-white/5 p-2.5 text-xs">
+                        {meta.length > 0 && (
+                          <div className="mb-2 flex flex-wrap gap-x-4 gap-y-0.5 border-b border-white/5 pb-2">
+                            {meta.map(([mk, v]) => (
+                              <span key={mk} className="text-[10px] text-muted-dim">
+                                {mk.replace(/_/g, " ")}: <span className="text-foreground">{formatStageValue(v)}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {details ? (
+                          <StageResults name={k} data={details} />
+                        ) : (
+                          <p className="text-muted-dim">Loading results…</p>
+                        )}
                       </div>
                     )}
                   </div>
