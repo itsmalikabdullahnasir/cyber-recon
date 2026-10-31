@@ -88,6 +88,7 @@ export function DashboardClient({
 
   const hostsByTarget = useMemo(() => groupBy(hosts, (h) => h.target_id), [hosts]);
   const findingsByTarget = useMemo(() => groupBy(findings, (f) => f.target_id), [findings]);
+  const scansByTarget = useMemo(() => groupBy(scans, (s) => s.target_id), [scans]);
 
   const categories = useMemo(() => {
     const cats = new Map<string, number>();
@@ -120,11 +121,12 @@ export function DashboardClient({
         if (t.name.toLowerCase().includes(q) || t.domain?.toLowerCase().includes(q) || t.ip_range?.toLowerCase().includes(q)) return true;
         if ((hostsByTarget.get(t.id) ?? []).some((h) => h.ip.toLowerCase().includes(q))) return true;
         if ((findingsByTarget.get(t.id) ?? []).some((f) => f.title.toLowerCase().includes(q))) return true;
+        if ((scansByTarget.get(t.id) ?? []).some((s) => `${s.input} ${s.mode} ${s.status}`.toLowerCase().includes(q))) return true;
         return false;
       });
     }
     return result;
-  }, [targets, filter, risk, search, hostsByTarget, findingsByTarget]);
+  }, [targets, filter, risk, search, hostsByTarget, findingsByTarget, scansByTarget]);
 
   const liveHosts = hosts.filter((h) => h.status === "Live").length;
   const criticalFindings = findings.filter((f) => f.severity === "Critical" || f.severity === "High").length;
@@ -250,7 +252,7 @@ export function DashboardClient({
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
             {filteredScans.slice(0, 20).map((s) => (
-              <ScanRow key={s.id} scan={s} />
+              <ScanRow key={s.id} scan={s} assignTargets={targets.map((target) => ({ id: target.id, name: target.name }))} />
             ))}
             </div>
           )}

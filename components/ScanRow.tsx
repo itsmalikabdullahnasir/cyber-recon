@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Scan, Host, Subdomain, Finding } from "@/lib/types";
+import type { Scan, Host, Subdomain, Finding, Target } from "@/lib/types";
 import { COMMON_PORTS } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -56,11 +56,34 @@ function scanDuration(scan: Scan): string | null {
   return `${m}m ${s % 60}s`;
 }
 
-export function ScanRow({ scan }: { scan: Scan }) {
+export function ScanRow({ scan, assignTargets = [] }: { scan: Scan; assignTargets?: Pick<Target, "id" | "name">[] }) {
   const [busy, setBusy] = useState(false);
   const [openStage, setOpenStage] = useState<string | null>(null);
   const [details, setDetails] = useState<ScanDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [assigned, setAssigned] = useState(false);
+
+  async function assignToGroup(targetId: string) {
+    if (!targetId || targetId === scan.target_id) return;
+    setAssigning(true);
+    try {
+      const supabase = createClient();
+      const updates = await Promise.all([
+        supabase.from("scans").update({ target_id: targetId }).eq("id", scan.id),
+        supabase.from("hosts").update({ target_id: targetId }).eq("scan_id", scan.id),
+        supabase.from("subdomains").update({ target_id: targetId }).eq("scan_id", scan.id),
+        supabase.from("findings").update({ target_id: targetId }).eq("scan_id", scan.id),
+      ]);
+      const error = updates.find((result) => result.error)?.error;
+      if (error) throw new Error(error.message);
+      setAssigned(true);
+    } catch (e) {
+      alert(`Could not assign scan to group: ${e instanceof Error ? e.message : "unknown error"}`);
+    } finally {
+      setAssigning(false);
+    }
+  }
 
   // Lazily pull this scan's actual results (hosts/subdomains/findings) the first
   // time any stage is opened, so the detail card can show real data.
@@ -177,6 +200,20 @@ export function ScanRow({ scan }: { scan: Scan }) {
             </span>
           )}
           <span className="text-[10px] text-muted-dim">{new Date(scan.created_at).toLocaleString()}</span>
+          {assignTargets.length > 0 && (
+            <select
+              defaultValue=""
+              disabled={assigning}
+              onChange={(e) => { void assignToGroup(e.target.value); e.target.value = ""; }}
+              className="rounded-md border border-white/10 bg-background px-1.5 py-1 text-[10px] outline-none focus:border-accent/40"
+              title="Link this scan and its results to a group"
+            >
+              <option value="">{assigned ? "Assigned ✓" : "Link to group…"}</option>
+              {assignTargets.filter((target) => target.id !== scan.target_id).map((target) => (
+                <option key={target.id} value={target.id}>{target.name}</option>
+              ))}
+            </select>
+          )}
         </span>
       </div>
 

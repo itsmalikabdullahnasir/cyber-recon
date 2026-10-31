@@ -4,7 +4,7 @@
 // Colors come from props (hex) so they work in light and dark mode. Enhanced
 // with smooth curves, soft glows, gradient fills and a draw-in animation.
 
-import { useId } from "react";
+import { useId, useState } from "react";
 
 // Catmull-Rom → cubic-bezier smoothing for a flowing line.
 function smoothPath(pts: readonly (readonly [number, number])[]): string {
@@ -42,6 +42,7 @@ export function Donut({
   const r = (size - thickness) / 2;
   const c = 2 * Math.PI * r;
   const gap = total > 0 && data.length > 1 ? Math.min(6, c * 0.015) : 0; // breathing room between segments
+  const [hovered, setHovered] = useState<number | null>(null);
   let offset = 0;
 
   return (
@@ -64,10 +65,10 @@ export function Donut({
                 strokeLinecap="round"
                 strokeDasharray={`${draw} ${c - draw}`}
                 strokeDashoffset={-offset}
-                style={{ transition: "stroke-dasharray .6s ease", filter: `drop-shadow(0 0 5px ${d.color}66)` }}
-              >
-                <title>{`${d.label}: ${d.value}`}</title>
-              </circle>
+                onMouseEnter={() => setHovered(i)}
+                onMouseLeave={() => setHovered(null)}
+                style={{ transition: "stroke-dasharray .6s ease", filter: `drop-shadow(0 0 5px ${d.color}66)`, opacity: hovered === null || hovered === i ? 1 : 0.35 }}
+              />
             );
             offset += len;
             return seg;
@@ -77,6 +78,11 @@ export function Donut({
         {centerValue !== undefined && <span className="text-2xl font-bold leading-none">{centerValue}</span>}
         {centerLabel && <span className="mt-1 text-[9px] uppercase tracking-widest text-muted-dim">{centerLabel}</span>}
       </div>
+      {hovered !== null && (
+        <div className="pointer-events-none absolute -top-2 left-1/2 z-10 -translate-x-1/2 rounded-md border border-white/10 bg-surface-raised px-2 py-1 text-[10px] shadow-lg">
+          {data[hovered].label}: <span className="font-semibold">{data[hovered].value}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -104,6 +110,7 @@ export function AreaChart({
   const line = smoothPath(coords);
   const area = coords.length ? `${line} L${w},${height} L0,${height} Z` : "";
   const last = coords[coords.length - 1];
+  const [hovered, setHovered] = useState<number | null>(null);
 
   return (
     <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" className={`w-full ${className}`} style={{ height, overflow: "visible" }}>
@@ -135,10 +142,26 @@ export function AreaChart({
         </circle>
       )}
       {coords.map((point, index) => (
-        <circle key={index} cx={point[0]} cy={point[1]} r="4" fill="transparent" className="cursor-help">
-          <title>{`Day ${index + 1}: ${points[index]}`}</title>
-        </circle>
+        <circle
+          key={index}
+          cx={point[0]}
+          cy={point[1]}
+          r="5"
+          fill={hovered === index ? color : "transparent"}
+          stroke={hovered === index ? color : "transparent"}
+          strokeWidth="1"
+          className="cursor-help"
+          onMouseEnter={() => setHovered(index)}
+          onMouseLeave={() => setHovered(null)}
+        />
       ))}
+      {hovered !== null && (
+        <foreignObject x={`${Math.min(Math.max(coords[hovered][0] - 12, 0), 76)}%`} y="0" width="24" height="22">
+          <div className="rounded border border-white/10 bg-surface-raised px-1 py-0.5 text-center text-[8px] text-foreground shadow-lg">
+            {points[hovered]}
+          </div>
+        </foreignObject>
+      )}
     </svg>
   );
 }
@@ -152,6 +175,7 @@ export function BarList({
   className?: string;
 }) {
   const max = Math.max(1, ...data.map((d) => d.value));
+  const [hovered, setHovered] = useState<string | null>(null);
   return (
     <div className={`flex flex-col gap-2 ${className}`}>
       {data.map((d) => (
@@ -166,11 +190,12 @@ export function BarList({
                 boxShadow: `0 0 8px ${d.color}66`,
                 transition: "width 0.6s ease",
               }}
-            >
-              <title>{`${d.label}: ${d.value}`}</title>
-            </div>
+              onMouseEnter={() => setHovered(d.label)}
+              onMouseLeave={() => setHovered(null)}
+            />
           </div>
           <span className="w-6 shrink-0 text-right font-mono tabular-nums">{d.value}</span>
+          {hovered === d.label && <span className="text-[9px] text-accent">{d.value}</span>}
         </div>
       ))}
     </div>
