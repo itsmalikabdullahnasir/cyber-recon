@@ -55,22 +55,28 @@ export function UserAvatar({
   size = 24,
   title,
   className = "",
+  animated = false,
 }: {
   name: string;
   size?: number;
   title?: string;
   className?: string;
+  animated?: boolean;
 }) {
   const id = useId();
   const seed = hashStr(name || "?");
   const hue = seed % 360;
   const hue2 = (hue + 40) % 360;
   const points = 6 + (seed % 3); // 6–8 lobes
-  const path = blobPath(seed, size, points);
+  const p0 = blobPath(seed, size, points);
+  // Two more blobs with the SAME structure (same point count) so the shape can
+  // morph smoothly between them when animated.
+  const p1 = blobPath((seed ^ 0x5bd1e995) >>> 0, size, points);
+  const p2 = blobPath((seed ^ 0x27d4eb2f) >>> 0, size, points);
   const initial = (name || "?").trim().charAt(0).toUpperCase() || "?";
 
   return (
-    <span className={`inline-flex shrink-0 ${className}`} title={title ?? name} style={{ width: size, height: size }}>
+    <span className={`inline-flex shrink-0 ${animated ? "ua-animated" : ""} ${className}`} title={title ?? name} style={{ width: size, height: size }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
         <defs>
           <radialGradient id={`b-${id}`} cx="35%" cy="30%" r="80%">
@@ -78,7 +84,19 @@ export function UserAvatar({
             <stop offset="100%" stopColor={`hsl(${hue} 68% 44%)`} />
           </radialGradient>
         </defs>
-        <path d={path} fill={`url(#b-${id})`} />
+        <path d={p0} fill={`url(#b-${id})`}>
+          {animated && (
+            <animate
+              attributeName="d"
+              dur="7s"
+              repeatCount="indefinite"
+              calcMode="spline"
+              keyTimes="0;0.33;0.66;1"
+              keySplines="0.45 0 0.55 1;0.45 0 0.55 1;0.45 0 0.55 1"
+              values={`${p0};${p1};${p2};${p0}`}
+            />
+          )}
+        </path>
         <text
           x="50%"
           y="52%"

@@ -48,6 +48,7 @@ export interface Host {
   scan_id: string | null;
   is_cdn: boolean | null;
   cdn_name: string | null;
+  waf: string | null;
   asn: string | null;
   tech: string[] | null;
   ports: PortInfo[] | null;
