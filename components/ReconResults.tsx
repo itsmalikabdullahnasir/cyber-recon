@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type { Finding, Host, Subdomain, Target } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 
@@ -14,6 +14,34 @@ const SEV_COLOR: Record<string, string> = {
   Info: "border-zinc-500/30 bg-zinc-500/10 text-zinc-300",
 };
 const SEV_RANK: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1, Info: 0 };
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/5 bg-background/40 p-2.5">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-dim">{label}</p>
+      <p className="mt-1 break-words text-xs text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function DetailList({ label, values }: { label: string; values: string[] }) {
+  return (
+    <div className="rounded-lg border border-white/5 bg-background/40 p-3">
+      <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-dim">{label}</p>
+      {values.length === 0 ? (
+        <p className="mt-2 text-xs text-muted-dim">—</p>
+      ) : (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {values.map((value, index) => (
+            <span key={`${value}-${index}`} className="rounded bg-white/5 px-2 py-1 text-[10px] text-foreground">
+              {value}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // The export shape requested, extended with ports/tech/cves.
 interface Row {
@@ -30,6 +58,7 @@ interface Row {
   ports: { port: number; protocol: string; service: string | null; version: string | null }[];
   cves: { id: string; severity: string; cvss: number | null }[];
   findings: { title: string; severity: string; source: string | null; cve: string | null }[];
+  host: Host | null;
 }
 
 export function ReconResults({
@@ -123,6 +152,7 @@ export function ReconResults({
   const [query, setQuery] = useState("");
   const [risk, setRisk] = useState<"All" | "Critical" | "High" | "Medium" | "Low">("All");
   const [limit, setLimit] = useState(50);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   const rows = useMemo<Row[]>(() => {
     const hostByIp = new Map(hosts.map((h) => [h.ip, h]));
@@ -169,6 +199,7 @@ export function ReconResults({
           .map((f) => ({ id: f.cve_id as string, severity: f.severity, cvss: f.cvss }))
           .sort((a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity]),
         findings: dedup.map((f) => ({ title: f.title, severity: f.severity, source: f.source, cve: f.cve_id })),
+        host: host ?? null,
       };
     });
 
@@ -193,6 +224,7 @@ export function ReconResults({
             .filter((f) => f.cve_id)
             .map((f) => ({ id: f.cve_id as string, severity: f.severity, cvss: f.cvss })),
           findings: list.map((f) => ({ title: f.title, severity: f.severity, source: f.source, cve: f.cve_id })),
+          host: h,
         });
       }
     }
@@ -367,8 +399,12 @@ export function ReconResults({
             </tr>
           </thead>
           <tbody>
-            {shown.map((r) => (
-              <tr key={rowKey(r)} className="border-b border-white/[0.03] align-top hover:bg-white/[0.02]">
+            {shown.map((r) => {
+              const key = rowKey(r);
+              const isExpanded = expandedKey === key;
+              return (
+              <Fragment key={key}>
+              <tr key={key} className="border-b border-white/[0.03] align-top hover:bg-white/[0.02]">
                 {hasAssign && (
                   <td className="px-3 py-2">
                     <input type="checkbox" checked={selected.has(rowKey(r))} onChange={() => toggle(rowKey(r))} />
@@ -457,7 +493,14 @@ export function ReconResults({
                         </span>
                       ))}
                       {r.findings.length > 8 && (
-                        <span className="text-[10px] text-muted-dim">+{r.findings.length - 8} more</span>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedKey(isExpanded ? null : key)}
+                          className="mt-1 w-fit rounded-md border border-accent/20 bg-accent/10 px-2 py-1 text-left text-[10px] font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/20"
+                          aria-expanded={isExpanded}
+                        >
+                          {isExpanded ? "Hide details" : `+${r.findings.length - 8} more — open IP card`}
+                        </button>
                       )}
                     </div>
                   )}
@@ -478,7 +521,51 @@ export function ReconResults({
                   </td>
                 )}
               </tr>
-            ))}
+              {isExpanded && (
+                <tr key={`${key}-details`} className="border-b border-accent/20 bg-accent/[0.03]">
+                  <td colSpan={hasAssign ? 9 : 8} className="p-3">
+                    <div className="rounded-xl border border-accent/20 bg-surface p-4 shadow-lg shadow-accent/5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-accent">Complete host details</p>
+                          <h3 className="mt-1 font-mono text-lg font-semibold text-foreground">{r.ip ?? r.subdomain}</h3>
+                          <p className="text-xs text-muted-dim">{r.subdomain}{r.title ? ` · ${r.title}` : ""}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedKey(null)}
+                          className="rounded-md border border-white/10 px-2 py-1 text-[10px] text-muted hover:text-foreground"
+                        >
+                          Close
+                        </button>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+                        <Detail label="Risk" value={r.risk === null ? "—" : String(r.risk)} />
+                        <Detail label="Status" value={r.host?.status ?? "—"} />
+                        <Detail label="OS" value={r.host?.os_guess ?? "—"} />
+                        <Detail label="Hostname" value={r.host?.hostname ?? "—"} />
+                        <Detail label="CDN" value={r.cdn ?? "—"} />
+                        <Detail label="WAF" value={r.host?.waf ?? "—"} />
+                        <Detail label="ASN" value={r.host?.asn ?? "—"} />
+                        <Detail label="Checked by" value={r.host?.checked_by ?? "—"} />
+                        <Detail label="Last scanned" value={r.host?.last_scanned ?? "—"} />
+                        <Detail label="SSL" value={r.host?.ssl_info ?? "—"} />
+                      </div>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <DetailList label="All ports" values={r.ports.map((p) => `${p.port}/${p.protocol}${p.service ? ` · ${p.service}` : ""}${p.version ? ` ${p.version}` : ""}`)} />
+                        <DetailList label="Technology" values={r.tech} />
+                        <DetailList label="All findings" values={r.findings.map((f) => `${f.severity}: ${f.cve ?? f.title}${f.source ? ` (${f.source})` : ""}`)} />
+                        <DetailList label="Notes" values={r.host?.notes ? [r.host.notes] : []} />
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

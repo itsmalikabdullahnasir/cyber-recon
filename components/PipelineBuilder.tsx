@@ -9,7 +9,8 @@ import type { ModuleDef, ModuleRegistry, PipelineModule, PipelineProfile } from 
 //   CENTER — the pipeline you're assembling: drag to reorder, toggle, remove, with
 //            a live summary (stages, worst-case time, missing deps, uninstalled).
 //   RIGHT  — details of the selected module.
-// Custom pipelines persist via /api/pipelines. Executing one is wired next.
+// Custom pipelines persist via /api/pipelines. Built-in presets are editable
+// starting points; saving creates a reusable custom profile.
 export function PipelineBuilder() {
   const [registry, setRegistry] = useState<ModuleRegistry | null>(null);
   const [saved, setSaved] = useState<PipelineProfile[]>([]);
@@ -239,7 +240,7 @@ export function PipelineBuilder() {
           }}
           className="rounded-lg border border-white/10 bg-background px-3 py-1.5 text-xs outline-none focus:border-accent/40"
         >
-          <option value="">Load…</option>
+          <option value="">Load preset or saved profile…</option>
           {registry?.profiles &&
             Object.entries(registry.profiles).map(([key, p]) => (
               <option key={key} value={`builtin:${key}`}>
@@ -302,6 +303,11 @@ export function PipelineBuilder() {
           {notice.text}
         </div>
       )}
+
+      <p className="text-[11px] text-muted-dim">
+        Load Passive or Full Active above, modify the stages, then click Save to create an editable custom profile.
+        TLS Audit is optional and is not included in the default scans.
+      </p>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.15fr)_minmax(0,0.9fr)]">
         {/* LEFT — available modules, grouped */}

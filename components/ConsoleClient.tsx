@@ -502,7 +502,7 @@ export function ConsoleClient({
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-dim">
           <span>{mode === "passive" ? "Passive" : "Full"}:</span>
           <span>subdomains → DNS → HTTP probe → whatweb/WAF → CVE-by-version</span>
-          {mode === "full" && <span className="text-rose-400/80">→ nmap → testssl → dir brute → nuclei</span>}
+          {mode === "full" && <span className="text-rose-400/80">→ nmap → dir brute → nuclei</span>}
         </div>
 
         <details className="group mt-2">

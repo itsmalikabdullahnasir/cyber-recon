@@ -213,9 +213,9 @@ MODULES: list[ModuleDef] = [
 
 MODULES_BY_ID: dict[str, ModuleDef] = {m.id: m for m in MODULES}
 
-# Built-in profiles = named, ordered lists of module ids. These reproduce the
-# current fixed pipeline exactly, so selecting "Basic" behaves like today.
-# Advanced/Full gain the new lightweight modules in later phases.
+# Built-in profiles are editable starting points for the Pipeline Builder.
+# The default passive/full scan routes intentionally omit the slow TLS audit;
+# users can add it from the module list or load Full — Everything.
 BUILTIN_PROFILES: dict[str, dict] = {
     "basic_passive": {
         "name": "Basic — Passive",
@@ -225,9 +225,9 @@ BUILTIN_PROFILES: dict[str, dict] = {
     },
     "basic_full": {
         "name": "Basic — Full (active)",
-        "description": "The existing full pipeline: passive stages plus nmap, TLS, dir brute, nuclei.",
+        "description": "Passive recon plus scoped nmap, directory discovery and nuclei. TLS is optional.",
         "modules": ["subfinder", "dnsx", "httpx", "fingerprint", "origin", "cve",
-                    "nmap", "testssl", "dirs", "nuclei"],
+                    "nmap", "dirs", "nuclei"],
         "builtin": True,
     },
     "full_all": {

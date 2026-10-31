@@ -2,7 +2,7 @@
 
 passive: subfinder -> dnsx -> httpx (+CDN) -> whatweb/wafw00f -> CVE match on tech
 full:    passive + [scope gate] nmap -> CVE on nmap versions -> nuclei
-                 -> testssl -> feroxbuster (dirs) -> nikto
+                 -> feroxbuster (dirs) -> nikto
 """
 
 import hashlib
@@ -273,19 +273,13 @@ class Pipeline:
             except ToolError as e:
                 self.stage("nuclei", "skipped", detail=str(e))
 
-        # h: testssl (TLS audit)
-        if self.s.enable_testssl:
-            self._run_testssl(inscope)
-        else:
-            self.stage("testssl", "skipped", detail="disabled")
-
-        # i: feroxbuster (content/directory discovery)
+        # h: feroxbuster (content/directory discovery)
         if self.s.enable_feroxbuster:
             self._run_feroxbuster(inscope)
         else:
             self.stage("dirs", "skipped", detail="disabled")
 
-        # j: nikto (web-server misconfig). Off by default (noisy/slow).
+        # i: nikto (web-server misconfig). Off by default (noisy/slow).
         if self.s.enable_nikto:
             self._run_nikto(inscope)
         else:
