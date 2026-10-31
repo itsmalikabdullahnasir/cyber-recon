@@ -81,6 +81,22 @@ ALIASES: dict[str, tuple[str | None, str]] = {
     "grafana": ("grafana", "grafana"),
     "jenkins": ("jenkins", "jenkins"),
     "gitlab": ("gitlab", "gitlab"),
+    "codeigniter": ("codeigniter", "codeigniter"),
+    "laravel": ("laravel", "laravel"),
+    "symfony": ("sensiolabs", "symfony"),
+    "django": ("djangoproject", "django"),
+    "moment.js": ("momentjs", "moment"),
+    "momentjs": ("momentjs", "moment"),
+    "moment": ("momentjs", "moment"),
+    "lodash": ("lodash", "lodash"),
+    "vue.js": ("vuejs", "vue"),
+    "react": ("facebook", "react"),
+    "angular": ("angular", "angular"),
+    "angularjs": ("angularjs", "angular.js"),
+    "asp.net": ("microsoft", "asp.net"),
+    "openssl": ("openssl", "openssl"),
+    "nextjs": ("vercel", "next.js"),
+    "next.js": ("vercel", "next.js"),
 }
 
 _PRE_RELEASE = {"alpha", "a", "beta", "b", "rc", "pre", "preview", "dev", "snapshot", "m"}

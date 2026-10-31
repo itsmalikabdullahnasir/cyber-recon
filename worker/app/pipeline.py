@@ -213,17 +213,24 @@ class Pipeline:
             self.stage("cve", "done", count=self.stages.get("cve", {}).get("count", 0) + n, source="httpx+nmap")
 
         # In-scope live URLs (host-gated), reused by nuclei + the web tools below.
-        inscope: list[tuple[str, dict]] = [
+        # CDN/Cloudflare hosts are skipped: you'd be scanning the edge, not the
+        # origin — it's pointless and nuclei against a WAF is very slow.
+        candidates = [
             (name, p) for name, p in sorted(probes.items())
             if scope.hostname_allowed(name) or any(scope.ip_allowed(ip) for ip in p["ips"])
-        ][: self.s.max_heavy_hosts]
+        ]
+        cdn_skipped = sum(1 for _, p in candidates if p["is_cdn"])
+        inscope: list[tuple[str, dict]] = [(n, p) for n, p in candidates if not p["is_cdn"]][: self.s.max_heavy_hosts]
         urls = [self._url_for(name, p) for name, p in inscope]
 
         # g: nuclei
-        self.stage("nuclei", "running", urls=len(urls))
-        results = nuclei.run(urls, self.workdir)
-        n = self._apply_nuclei(results, probes)
-        self.stage("nuclei", "done", urls=len(urls), findings=n)
+        if not urls:
+            self.stage("nuclei", "skipped", detail=f"no non-CDN in-scope hosts ({cdn_skipped} CDN skipped)")
+        else:
+            self.stage("nuclei", "running", urls=len(urls), cdn_skipped=cdn_skipped)
+            results = nuclei.run(urls, self.workdir)
+            n = self._apply_nuclei(results, probes)
+            self.stage("nuclei", "done", urls=len(urls), findings=n, cdn_skipped=cdn_skipped)
 
         # h: testssl (TLS audit)
         if self.s.enable_testssl:

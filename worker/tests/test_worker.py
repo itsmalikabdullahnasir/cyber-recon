@@ -315,8 +315,11 @@ def test_full_pipeline_respects_scope_and_cdn(fake_tools):
     assert len(fake_tools["whatweb"]) == 4
     assert host["waf"] == "ModSecurity"
     assert "PHP:7.4.3" in host["tech"]
-    assert len(fake_tools["testssl"]) == 3 and len(fake_tools["ferox"]) == 3
+    # Active web tools run on in-scope, NON-CDN hosts only: example.com + www
+    # (both non-CDN). cdn.example.com is in scope but CDN -> skipped.
+    assert len(fake_tools["testssl"]) == 2 and len(fake_tools["ferox"]) == 2
     assert "https://other.example.com" not in fake_tools["ferox"]  # out of scope, never dir-scanned
+    assert "https://cdn.example.com" not in fake_tools["ferox"]  # CDN edge, skipped
     assert host["dirs"][0]["path"] == "/admin"
     assert any(f["source"] == "testssl" for f in db.tables["findings"])
     dir_findings = [f for f in db.tables["findings"] if f["source"] == "feroxbuster"]

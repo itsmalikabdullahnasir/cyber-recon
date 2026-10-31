@@ -70,7 +70,7 @@ class Settings:
     dnsx_timeout: int = field(default_factory=lambda: _int("DNSX_TIMEOUT", 600))
     httpx_timeout: int = field(default_factory=lambda: _int("HTTPX_TIMEOUT", 900))
     nmap_host_timeout: int = field(default_factory=lambda: _int("NMAP_HOST_TIMEOUT", 900))
-    nuclei_timeout: int = field(default_factory=lambda: _int("NUCLEI_TIMEOUT", 3600))
+    nuclei_timeout: int = field(default_factory=lambda: _int("NUCLEI_TIMEOUT", 1200))
     whatweb_timeout: int = field(default_factory=lambda: _int("WHATWEB_TIMEOUT", 120))
     wafw00f_timeout: int = field(default_factory=lambda: _int("WAFW00F_TIMEOUT", 120))
     testssl_timeout: int = field(default_factory=lambda: _int("TESTSSL_TIMEOUT", 900))
