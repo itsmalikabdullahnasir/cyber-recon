@@ -11,17 +11,22 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  // Cap each query so the dashboard never pulls an unbounded table as your
+  // history grows. The targets list paginates client-side (50 at a time);
+  // hosts/findings caps are generous enough to keep the overview accurate.
   const { data: targets } = await supabase
     .from("targets")
     .select("*")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(200);
 
-  const { data: hosts } = await supabase.from("hosts").select("*");
+  const { data: hosts } = await supabase.from("hosts").select("*").limit(2000);
 
   const { data: findings } = await supabase
     .from("findings")
     .select("*")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(2000);
 
   const { data: activities } = await supabase
     .from("activities")

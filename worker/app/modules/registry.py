@@ -230,6 +230,13 @@ BUILTIN_PROFILES: dict[str, dict] = {
                     "nmap", "testssl", "dirs", "nuclei"],
         "builtin": True,
     },
+    "full_all": {
+        "name": "Full — Everything",
+        "description": "Every module in order — passive recon plus all active scans (nmap, TLS, dir brute, nuclei, nikto). Load it and trim what you don't want.",
+        "modules": ["subfinder", "dnsx", "httpx", "fingerprint", "origin", "cve",
+                    "nmap", "testssl", "dirs", "nuclei", "nikto"],
+        "builtin": True,
+    },
 }
 
 
