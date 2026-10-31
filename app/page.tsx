@@ -11,8 +11,23 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: targets }, { count: targetCount }, { count: hostCount }, { count: findingCount }, { count: liveHostCount }, { count: criticalFindingCount }, { count: highFindingCount }, { count: scanCount }, { count: activeScanCount }, { count: criticalCount }, { count: highCount }, { count: mediumCount }, { count: lowCount }, { count: infoCount }, { data: runningScan }] =
-    await Promise.all([
+  const [
+    { data: targets },
+    targetCountResult,
+    hostCountResult,
+    findingCountResult,
+    liveHostCountResult,
+    criticalFindingCountResult,
+    highFindingCountResult,
+    scanCountResult,
+    activeScanCountResult,
+    criticalCountResult,
+    highCountResult,
+    mediumCountResult,
+    lowCountResult,
+    infoCountResult,
+    runningScanResult,
+  ] = await Promise.all([
       supabase
     .from("targets")
     .select("*")
@@ -64,17 +79,42 @@ export default async function DashboardPage() {
           findings={findings ?? []}
           activities={activities ?? []}
           scans={scans ?? []}
-          runningScan={runningScan}
           totals={{
-            targets: targetCount ?? 0,
-            hosts: hostCount ?? 0,
-            liveHosts: liveHostCount ?? 0,
-            findings: findingCount ?? 0,
-            criticalFindings: (criticalFindingCount ?? 0) + (highFindingCount ?? 0),
-            scans: scanCount ?? 0,
-            activeScans: activeScanCount ?? 0,
-            severity: { Critical: criticalCount ?? 0, High: highCount ?? 0, Medium: mediumCount ?? 0, Low: lowCount ?? 0, Info: infoCount ?? 0 },
+            targets: targetCountResult.count,
+            hosts: hostCountResult.count,
+            liveHosts: liveHostCountResult.count,
+            findings: findingCountResult.count,
+            criticalFindings: criticalFindingCountResult.error || highFindingCountResult.error
+              ? null
+              : (criticalFindingCountResult.count ?? 0) + (highFindingCountResult.count ?? 0),
+            scans: scanCountResult.count,
+            activeScans: activeScanCountResult.count,
+            severity: {
+              Critical: criticalCountResult.count,
+              High: highCountResult.count,
+              Medium: mediumCountResult.count,
+              Low: lowCountResult.count,
+              Info: infoCountResult.count,
+            },
           }}
+          countErrors={{
+            targets: targetCountResult.error?.message ?? null,
+            hosts: hostCountResult.error?.message ?? null,
+            liveHosts: liveHostCountResult.error?.message ?? null,
+            findings: findingCountResult.error?.message ?? null,
+            criticalFindings: criticalFindingCountResult.error?.message ?? highFindingCountResult.error?.message ?? null,
+            scans: scanCountResult.error?.message ?? null,
+            activeScans: activeScanCountResult.error?.message ?? null,
+            severity: {
+              Critical: criticalCountResult.error?.message ?? null,
+              High: highCountResult.error?.message ?? null,
+              Medium: mediumCountResult.error?.message ?? null,
+              Low: lowCountResult.error?.message ?? null,
+              Info: infoCountResult.error?.message ?? null,
+            },
+          }}
+          runningScan={runningScanResult.data}
+          runningScanError={runningScanResult.error?.message ?? null}
           userName={user.email ?? "operator"}
         />
       </div>

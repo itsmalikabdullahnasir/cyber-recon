@@ -48,9 +48,12 @@ export function ConsoleClient({
   const [subs, setSubs] = useState<Subdomain[]>(subsInit);
   const [hosts, setHosts] = useState<Host[]>(hostsInit);
   const [finds, setFinds] = useState<Finding[]>(findingsInit);
-  const [pending, setPending] = useState(0);
-  const [failed, setFailed] = useState(0);
-  const [statusCounts, setStatusCounts] = useState({ queued: 0, running: 0, done: 0, failed: 0, total: initialScans.length });
+  const [pending, setPending] = useState<number | null>(null);
+  const [failed, setFailed] = useState<number | null>(null);
+  const [statusCounts, setStatusCounts] = useState({ queued: null as number | null, running: null as number | null, done: null as number | null, failed: null as number | null, total: null as number | null });
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [scanListError, setScanListError] = useState<string | null>(null);
   const [loadingMoreScans, setLoadingMoreScans] = useState(false);
   const [visibleScans, setVisibleScans] = useState(8);
   const [resultsHasMore, setResultsHasMore] = useState(false);
@@ -97,10 +100,17 @@ export function ConsoleClient({
   }
 
   const refreshPending = useCallback(async (id: string) => {
+    setStatusLoading(true);
     const supabase = createClient();
     const statuses = await Promise.all(["queued", "running", "done", "failed"].map((status) =>
       supabase.from("scans").select("id", { count: "exact", head: true }).eq("target_id", id).eq("status", status),
     ));
+    const error = statuses.find((result) => result.error)?.error?.message ?? null;
+    if (error) {
+      setStatusError(error);
+      setStatusLoading(false);
+      return;
+    }
     const counts = {
       queued: statuses[0].count ?? 0,
       running: statuses[1].count ?? 0,
@@ -110,6 +120,8 @@ export function ConsoleClient({
     setStatusCounts({ ...counts, total: Object.values(counts).reduce((sum, count) => sum + count, 0) });
     setPending(counts.queued + counts.running);
     setFailed(counts.failed);
+    setStatusError(null);
+    setStatusLoading(false);
   }, []);
 
   const loadFor = useCallback(async (id: string) => {
@@ -122,6 +134,7 @@ export function ConsoleClient({
       supabase.from("scope_entries").select("*").eq("target_id", id).order("created_at", { ascending: true }),
     ]);
     setScans(sc.data ?? []);
+    setScanListError(sc.error?.message ?? null);
     setVisibleScans(8);
     setSubs(sd.data ?? []);
     setHosts(h.data ?? []);
@@ -129,11 +142,11 @@ export function ConsoleClient({
     setResultsHasMore([sd.data, h.data, f.data].some((rows) => (rows?.length ?? 0) === 200));
     setScopeEntries(scp.data ?? []);
     scanStatus.current = new Map((sc.data ?? []).map((s) => [s.id, s.status]));
-    refreshPending(id);
+    await refreshPending(id);
   }, [refreshPending]);
 
   const loadMoreScans = async () => {
-    if (loadingMoreScans || scans.length >= statusCounts.total) return;
+    if (loadingMoreScans || statusCounts.total === null || scans.length >= statusCounts.total) return;
     setLoadingMoreScans(true);
     try {
       const supabase = createClient();
@@ -504,7 +517,7 @@ export function ConsoleClient({
     }
   }
 
-  const locked = pending > 0;
+  const locked = pending !== null && pending > 0;
   const activeScan = scans.find((s) => s.status === "queued" || s.status === "running");
   const runningScan = scans.find((s) => s.status === "running") ?? null;
   const selectableGroups = groupList.filter((g) => g.id !== consoleTargetId);
@@ -553,14 +566,20 @@ export function ConsoleClient({
       </div>
 
       {/* Queue lock banner */}
-      {locked && (
+      {statusError && (
+        <div className="flex items-center justify-between rounded-xl border border-rose-500/25 bg-rose-500/8 px-4 py-3 text-xs text-rose-300">
+          <span title={statusError}>Couldn’t load scan counters</span>
+          <button type="button" disabled={statusLoading} onClick={() => void refreshPending(groupId)} className="underline underline-offset-2 disabled:opacity-50">Retry</button>
+        </div>
+      )}
+      {locked && !statusError && (
         <div className="flex items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
           <svg className="h-4 w-4 animate-spin text-amber-400" viewBox="0 0 24 24" fill="none">
             <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
             <path className="opacity-90" d="M12 2a10 10 0 0110 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
           </svg>
           <div className="flex-1 text-xs text-amber-200">
-            <b>Queue running — {pending.toLocaleString()} scan{pending === 1 ? "" : "s"} remaining.</b>{" "}
+            <b>Queue running — {pending?.toLocaleString()} scan{pending === 1 ? "" : "s"} remaining.</b>{" "}
             Scans run one at a time on the VM. You can keep using the app and get a notification as each host completes.
           </div>
           <button
@@ -702,10 +721,12 @@ export function ConsoleClient({
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Now scanning</p>
             <p className={`mt-1 text-sm font-semibold ${runningScan ? "text-amber-200" : "text-muted"}`}>
-              {runningScan ? runningScan.input : "Idle — queue paused"}
+              {scanListError ? "Couldn’t load scan status" : runningScan ? runningScan.input : "Idle — queue paused"}
             </p>
           </div>
-          {runningScan && (
+          {scanListError ? (
+            <button type="button" disabled={statusLoading} onClick={() => void loadFor(groupId)} className="ml-auto text-[11px] text-rose-300 underline underline-offset-2 disabled:opacity-50">Retry</button>
+          ) : runningScan && (
             <span className="ml-auto rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-300">
               {runningScan.stage ?? "starting"}
             </span>
@@ -727,8 +748,8 @@ export function ConsoleClient({
       <div>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold">Scan activity {statusCounts.total > 0 && <span className="text-muted-dim">({statusCounts.total})</span>}</h2>
-            {failed > 0 && (
+            <h2 className="text-sm font-semibold">Scan activity {statusCounts.total !== null && <span className="text-muted-dim">({statusCounts.total})</span>}</h2>
+            {failed !== null && failed > 0 && (
               <button
                 onClick={reRunFailed}
                 disabled={busy}
@@ -747,19 +768,24 @@ export function ConsoleClient({
               ["failed", "Failed", "border-rose-500/30 bg-rose-500/10 text-rose-300"],
             ] as const).map(([key, label, cls]) => (
               <span key={key} className={`rounded-md border px-2 py-0.5 font-medium ${cls}`}>
-                {statusCounts[key as keyof typeof statusCounts]} {label}
+                {statusLoading ? "…" : statusError ? "—" : statusCounts[key as keyof typeof statusCounts]} {label}
               </span>
             ))}
           </div>
         </div>
-        {scans.length === 0 ? (
+        {scanListError ? (
+          <div className="card flex items-center justify-between p-4 text-xs text-rose-300">
+            <span title={scanListError}>Couldn’t load scan activity</span>
+            <button type="button" onClick={() => void loadFor(groupId)} className="underline underline-offset-2">Retry</button>
+          </div>
+        ) : scans.length === 0 ? (
           <p className="card p-4 text-center text-xs text-muted-dim">No scans in this group yet.</p>
         ) : (
           <div className="grid gap-2 lg:grid-cols-2">
             {scans.slice(0, visibleScans).map((s) => <ScanRow key={s.id} scan={s} />)}
           </div>
         )}
-        {visibleScans < scans.length || scans.length < statusCounts.total ? (
+        {statusCounts.total !== null && (visibleScans < scans.length || scans.length < statusCounts.total) ? (
           <button
             type="button"
             onClick={() => {

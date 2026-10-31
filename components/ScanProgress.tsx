@@ -8,6 +8,8 @@ type QueueCounts = { queued: number; running: number; done: number; failed: numb
 
 export function ScanProgress() {
   const [counts, setCounts] = useState<QueueCounts>({ queued: 0, running: 0, done: 0, failed: 0 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pending = useRef(false);
 
@@ -17,12 +19,20 @@ export function ScanProgress() {
       const results = await Promise.all(["queued", "running", "done", "failed"].map((status) =>
         supabase.from("scans").select("id", { count: "exact", head: true }).eq("status", status),
       ));
+      const queryError = results.find((result) => result.error)?.error?.message ?? null;
+      if (queryError) {
+        setError(queryError);
+        setLoading(false);
+        return;
+      }
       setCounts({
         queued: results[0].count ?? 0,
         running: results[1].count ?? 0,
         done: results[2].count ?? 0,
         failed: results[3].count ?? 0,
       });
+      setError(null);
+      setLoading(false);
     };
     const schedule = () => {
       pending.current = true;
@@ -47,6 +57,41 @@ export function ScanProgress() {
     };
   }, []);
 
+  if (loading) {
+    return <span className="h-7 w-24 animate-pulse rounded-lg bg-white/10" title="Loading queue status" />;
+  }
+  if (error) {
+    return (
+      <button
+        type="button"
+        title={error}
+        onClick={() => {
+          if (timer.current) return;
+          pending.current = false;
+          setLoading(true);
+          const supabase = createClient();
+          void Promise.all(["queued", "running", "done", "failed"].map((status) =>
+            supabase.from("scans").select("id", { count: "exact", head: true }).eq("status", status),
+          )).then((results) => {
+            const queryError = results.find((result) => result.error)?.error?.message ?? null;
+            setError(queryError);
+            if (!queryError) {
+              setCounts({
+                queued: results[0].count ?? 0,
+                running: results[1].count ?? 0,
+                done: results[2].count ?? 0,
+                failed: results[3].count ?? 0,
+              });
+            }
+            setLoading(false);
+          });
+        }}
+        className="flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-[11px] font-medium text-rose-300"
+      >
+        Queue unavailable · retry
+      </button>
+    );
+  }
   const active = counts.queued + counts.running;
   const total = active + counts.done + counts.failed;
   if (total === 0) return null;

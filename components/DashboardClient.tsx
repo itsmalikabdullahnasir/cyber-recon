@@ -21,8 +21,10 @@ const SEVERITY_COLORS: Record<string, string> = {
   Low: "#a855f7",
   Info: "#5c5775",
 };
+type MetricKey = "targets" | "hosts" | "liveHosts" | "findings" | "criticalFindings" | "scans" | "activeScans";
+type MetricState = { value: number | null; error: string | null };
 
-function NowScanning({ scan }: { scan: Scan | null }) {
+function NowScanning({ scan, loading, error, onRetry }: { scan: Scan | null; loading?: boolean; error?: string | null; onRetry?: () => void }) {
   const stage = scan?.stage ? scan.stages?.[scan.stage] : null;
   const host = stage && typeof stage === "object"
     ? ["host", "ip", "current_host", "current_ip", "target"].map((key) => stage[key]).find((value) => typeof value === "string")
@@ -35,10 +37,16 @@ function NowScanning({ scan }: { scan: Scan | null }) {
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Now scanning</p>
           <p className={`mt-1 text-sm font-semibold ${scan ? "text-amber-200" : "text-muted"}`}>
-            {scan ? scan.input : "Idle — queue paused"}
+            {loading ? "Checking scan status…" : error ? "Couldn’t load scan status" : scan ? scan.input : "Idle — queue paused"}
           </p>
         </div>
-        {scan && (
+        {error && (
+          <div className="ml-auto flex items-center gap-2 text-[10px] text-rose-300">
+            <span title={error}>Query failed</span>
+            <button type="button" onClick={onRetry} className="underline underline-offset-2 hover:text-rose-200">Retry</button>
+          </div>
+        )}
+        {scan && !error && !loading && (
           <div className="ml-auto flex flex-wrap items-center gap-2 text-[11px]">
             <span className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 font-medium text-amber-300">
               {scan.stage ?? "starting"}
@@ -59,6 +67,8 @@ export function DashboardClient({
   scans: scansInit,
   runningScan: runningScanInit,
   totals,
+  countErrors: initialCountErrors,
+  runningScanError: runningScanErrorInit,
   userName,
 }: {
   targets: Target[];
@@ -68,15 +78,17 @@ export function DashboardClient({
   scans: Scan[];
   runningScan: Scan | null;
   totals: {
-    targets: number;
-    hosts: number;
-    liveHosts: number;
-    findings: number;
-    criticalFindings: number;
-    scans: number;
-    activeScans: number;
-    severity: Record<string, number>;
+    targets: number | null;
+    hosts: number | null;
+    liveHosts: number | null;
+    findings: number | null;
+    criticalFindings: number | null;
+    scans: number | null;
+    activeScans: number | null;
+    severity: Record<string, number | null>;
   };
+  countErrors: Record<MetricKey, string | null> & { severity: Record<string, string | null> };
+  runningScanError: string | null;
   userName: string;
 }) {
   // Hide the hidden Scan Console bucket (works even before migration 2 adds the column).
@@ -92,11 +104,16 @@ export function DashboardClient({
   const [scans, setScans] = useState<Scan[]>(scansInit);
   const [runningScan, setRunningScan] = useState<Scan | null>(runningScanInit);
   const [counts, setCounts] = useState(totals);
+  const [countErrors, setCountErrors] = useState(initialCountErrors);
+  const [countLoading, setCountLoading] = useState(false);
+  const [runningScanError, setRunningScanError] = useState(runningScanErrorInit);
+  const [runningScanLoading, setRunningScanLoading] = useState(false);
   const [toasts, setToasts] = useState<{ id: string; text: string; kind: "ok" | "err" }[]>([]);
   const scanStatus = useRef<Map<string, string>>(new Map(scansInit.map((s) => [s.id, s.status])));
   const router = useRouter();
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshPending = useRef(false);
+  const retryingMetric = useRef<MetricKey | null>(null);
 
   function pushToast(kind: "ok" | "err", text: string) {
     const id = Math.random().toString(36).slice(2);
@@ -105,6 +122,7 @@ export function DashboardClient({
   }
 
   const refreshCounts = async () => {
+    setCountLoading(true);
     const supabase = createClient();
     const requests = await Promise.all([
       supabase.from("targets").select("id", { count: "exact", head: true }).eq("is_console", false),
@@ -119,37 +137,69 @@ export function DashboardClient({
       ),
     ]);
     setCounts({
-      targets: requests[0].count ?? 0,
-      hosts: requests[1].count ?? 0,
-      liveHosts: requests[2].count ?? 0,
-      findings: requests[3].count ?? 0,
-      criticalFindings: requests[4].count ?? 0,
-      scans: requests[5].count ?? 0,
-      activeScans: requests[6].count ?? 0,
+      targets: requests[0].count,
+      hosts: requests[1].count,
+      liveHosts: requests[2].count,
+      findings: requests[3].count,
+      criticalFindings: requests[4].count,
+      scans: requests[5].count,
+      activeScans: requests[6].count,
       severity: {
-        Critical: requests[7].count ?? 0,
-        High: requests[8].count ?? 0,
-        Medium: requests[9].count ?? 0,
-        Low: requests[10].count ?? 0,
-        Info: requests[11].count ?? 0,
+        Critical: requests[7].count,
+        High: requests[8].count,
+        Medium: requests[9].count,
+        Low: requests[10].count,
+        Info: requests[11].count,
       },
     });
+    setCountErrors({
+      targets: requests[0].error?.message ?? null,
+      hosts: requests[1].error?.message ?? null,
+      liveHosts: requests[2].error?.message ?? null,
+      findings: requests[3].error?.message ?? null,
+      criticalFindings: requests[4].error?.message ?? null,
+      scans: requests[5].error?.message ?? null,
+      activeScans: requests[6].error?.message ?? null,
+      severity: Object.fromEntries(["Critical", "High", "Medium", "Low", "Info"].map((key, index) => [key, requests[index + 7].error?.message ?? null])),
+    });
+    setCountLoading(false);
+  };
+
+  const retryMetric = async (key: MetricKey) => {
+    if (retryingMetric.current === key) return;
+    retryingMetric.current = key;
+    const supabase = createClient();
+    const queries = {
+      targets: supabase.from("targets").select("id", { count: "exact", head: true }).eq("is_console", false),
+      hosts: supabase.from("hosts").select("id", { count: "exact", head: true }),
+      liveHosts: supabase.from("hosts").select("id", { count: "exact", head: true }).eq("status", "Live"),
+      findings: supabase.from("findings").select("id", { count: "exact", head: true }),
+      criticalFindings: supabase.from("findings").select("id", { count: "exact", head: true }).in("severity", ["Critical", "High"]),
+      scans: supabase.from("scans").select("id", { count: "exact", head: true }),
+      activeScans: supabase.from("scans").select("id", { count: "exact", head: true }).in("status", ["queued", "running"]),
+    };
+    const result = await queries[key];
+    setCounts((current) => ({ ...current, [key]: result.count }));
+    setCountErrors((current) => ({ ...current, [key]: result.error?.message ?? null }));
+    retryingMetric.current = null;
   };
 
   const scheduleRefresh = () => {
     refreshPending.current = true;
+    setRunningScanLoading(true);
     if (refreshTimer.current) return;
     refreshTimer.current = setTimeout(async () => {
       refreshTimer.current = null;
       if (!refreshPending.current) return;
       refreshPending.current = false;
       const supabase = createClient();
-      const [{ data }, { data: currentRunning }] = await Promise.all([
+      const [{ data }, runningResult] = await Promise.all([
         supabase.from("scans").select("*").order("created_at", { ascending: false }).range(0, 39),
         supabase.from("scans").select("*").eq("status", "running").order("started_at", { ascending: false }).limit(1).maybeSingle(),
       ]);
       if (data) setScans(data);
-      setRunningScan(currentRunning);
+      setRunningScan(runningResult.data);
+      setRunningScanError(runningResult.error?.message ?? null);
       await refreshCounts();
     }, 1500);
   };
@@ -240,13 +290,16 @@ export function DashboardClient({
   const activeScans = counts.activeScans;
 
   const severityData = useMemo(() => {
-    return Object.entries(counts.severity).map(([label, value]) => ({ label, value, color: SEVERITY_COLORS[label] }));
+    return Object.entries(counts.severity)
+      .filter((entry): entry is [string, number] => entry[1] !== null)
+      .map(([label, value]) => ({ label, value, color: SEVERITY_COLORS[label] }));
   }, [counts.severity]);
 
   const riskScore = useMemo(() => {
+    if (counts.findings === null) return 0;
     if (counts.findings === 0) return 0;
     const w = { Critical: 25, High: 15, Medium: 8, Low: 3, Info: 0 };
-    const score = Object.entries(counts.severity).reduce((s, [severity, count]) => s + (w[severity as keyof typeof w] ?? 0) * count, 0);
+    const score = Object.entries(counts.severity).reduce((s, [severity, count]) => s + (w[severity as keyof typeof w] ?? 0) * (count ?? 0), 0);
     return Math.min(100, Math.round((score / (counts.findings * 10)) * 100));
   }, [counts]);
 
@@ -309,10 +362,10 @@ export function DashboardClient({
             </h2>
             <p className="mt-1 text-xs text-muted">
               {counts.targets} targets · {counts.hosts} hosts · {counts.findings} findings
-              {activeScans > 0 && (
+              {(activeScans ?? 0) > 0 && (
                 <span className="ml-2 inline-flex items-center gap-1.5 text-amber-400">
                   <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
-                  {activeScans} scan{activeScans > 1 ? "s" : ""} running
+                  {activeScans ?? "—"} scan{(activeScans ?? 0) > 1 ? "s" : ""} running
                 </span>
               )}
             </p>
@@ -321,14 +374,28 @@ export function DashboardClient({
           <EncryptButton text="Launch a scan" onClick={() => router.push("/console")} />
         </div>
       </div>
-      <NowScanning scan={runningScan} />
+      <NowScanning
+        scan={runningScan}
+        loading={runningScanLoading}
+        error={runningScanError}
+        onRetry={() => {
+          setRunningScanLoading(true);
+          const supabase = createClient();
+          void supabase.from("scans").select("*").eq("status", "running").order("started_at", { ascending: false }).limit(1).maybeSingle()
+            .then((result) => {
+              setRunningScan(result.data);
+              setRunningScanError(result.error?.message ?? null);
+              setRunningScanLoading(false);
+            });
+        }}
+      />
 
       {/* KPI row */}
       <div className="animate-fade-in grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard label="Targets" value={counts.targets} color="#a855f7" series={[1, 2, 2, 3, counts.targets]} />
-        <KpiCard label="Live hosts" value={liveHosts} sub={`${counts.hosts} total`} color="#d946ef" series={[2, 3, 5, 4, liveHosts]} />
-        <KpiCard label="Findings" value={counts.findings} sub={`${criticalFindings} crit/high`} color="#ec4899" accent={criticalFindings > 0} series={scanSeries} />
-        <KpiCard label="Active scans" value={activeScans} sub={`${counts.scans} total`} color="#f59e0b" live={activeScans > 0} series={scanSeries} />
+        <KpiCard label="Targets" value={counts.targets} error={countErrors.targets} loading={countLoading} onRetry={() => void retryMetric("targets")} color="#a855f7" series={[1, 2, 2, 3, counts.targets ?? 0]} />
+        <KpiCard label="Live hosts" value={liveHosts} error={countErrors.liveHosts} loading={countLoading} onRetry={() => void retryMetric("liveHosts")} sub={counts.hosts === null ? undefined : `${counts.hosts} total`} color="#d946ef" series={[2, 3, 5, 4, liveHosts ?? 0]} />
+        <KpiCard label="Findings" value={counts.findings} error={countErrors.findings} loading={countLoading} onRetry={() => void retryMetric("findings")} sub={criticalFindings === null ? undefined : `${criticalFindings} crit/high`} color="#ec4899" accent={(criticalFindings ?? 0) > 0} series={scanSeries} />
+        <KpiCard label="Active scans" value={activeScans} error={countErrors.activeScans} loading={countLoading} onRetry={() => void retryMetric("activeScans")} sub={counts.scans === null ? undefined : `${counts.scans} total`} color="#f59e0b" live={(activeScans ?? 0) > 0} series={scanSeries} />
       </div>
 
       {/* Charts */}
@@ -336,7 +403,7 @@ export function DashboardClient({
         <div className="card card-hover p-5">
           <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Findings by severity</p>
           <div className="flex items-center gap-5">
-            <Donut data={severityData.filter((d) => d.value > 0)} centerValue={counts.findings} centerLabel="findings" />
+            <Donut data={severityData.filter((d) => d.value > 0)} centerValue={counts.findings ?? "—"} centerLabel="findings" />
             <div className="flex-1">
               <BarList data={severityData} />
             </div>
@@ -365,7 +432,7 @@ export function DashboardClient({
           <div className="mb-3 flex items-center justify-between">
             <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
               Recent scans
-              {activeScans > 0 && <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400 text-amber-400" />}
+              {(activeScans ?? 0) > 0 && <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400 text-amber-400" />}
             </p>
             <div className="flex items-center gap-3">
               <select
@@ -550,9 +617,10 @@ export function DashboardClient({
 }
 
 function KpiCard({
-  label, value, sub, color, series, accent, live,
+  label, value, sub, color, series, accent, live, loading, error, onRetry,
 }: {
-  label: string; value: number; sub?: string; color: string; series: number[]; accent?: boolean; live?: boolean;
+  label: string; value: number | null; sub?: string; color: string; series: number[]; accent?: boolean; live?: boolean;
+  loading?: boolean; error?: string | null; onRetry?: () => void;
 }) {
   return (
     <div className="card card-hover relative overflow-hidden p-4">
@@ -562,7 +630,11 @@ function KpiCard({
       </div>
       <div className="mt-1.5 flex items-end justify-between gap-2">
         <span className={`animate-count text-3xl font-bold tabular-nums ${accent ? "text-rose-400" : ""}`} style={accent ? undefined : { color }}>
-          {value}
+          {loading ? <span className="inline-block h-8 w-20 animate-pulse rounded bg-white/10" /> : error ? (
+            <button type="button" onClick={onRetry} title={error} className="text-sm font-medium text-rose-300 hover:text-rose-200">
+              — <span className="text-[10px] underline underline-offset-2">retry</span>
+            </button>
+          ) : value}
         </span>
         <div className="h-8 w-20 opacity-80">
           <AreaChart points={series.length ? series : [0, 0]} height={32} color={color} />
