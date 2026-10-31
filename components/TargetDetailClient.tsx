@@ -36,6 +36,10 @@ export function TargetDetailClient({
   scopeEntries: ScopeEntry[]; scans: Scan[];
 }) {
   const [tab, setTab] = useState<Tab>("overview");
+  const targetDomain = target.domain?.trim() ?? "";
+  const webTarget = targetDomain
+    ? /^https?:\/\//i.test(targetDomain) ? targetDomain : `https://${targetDomain}`
+    : "";
 
   const tabs: { id: Tab; label: string; icon: string; count?: number }[] = [
     { id: "overview", label: "Overview", icon: "📊" },
@@ -209,12 +213,12 @@ export function TargetDetailClient({
         <div className="flex flex-col gap-4">
           <p className="text-xs text-muted-dim">Web security analysis — checks headers, CORS, WAF, TLS, methods, cookies</p>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <SecurityHeadersPanel defaultTarget={`https://${target.domain || target.name}`} />
-            <CorsPanel defaultTarget={`https://${target.domain || target.name}`} />
-            <WafPanel defaultTarget={`https://${target.domain || target.name}`} />
-            <TlsPanel defaultTarget={`https://${target.domain || target.name}`} />
-            <MethodsPanel defaultTarget={`https://${target.domain || target.name}`} />
-            <CookiesPanel defaultTarget={`https://${target.domain || target.name}`} />
+            <SecurityHeadersPanel defaultTarget={webTarget} />
+            <CorsPanel defaultTarget={webTarget} />
+            <WafPanel defaultTarget={webTarget} />
+            <TlsPanel defaultTarget={webTarget} />
+            <MethodsPanel defaultTarget={webTarget} />
+            <CookiesPanel defaultTarget={webTarget} />
           </div>
         </div>
       )}
@@ -223,17 +227,17 @@ export function TargetDetailClient({
         <div className="flex flex-col gap-4">
           <p className="text-xs text-muted-dim">Powered by WhoisXML API</p>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <WhoisPanel defaultTarget={target.domain || target.name} />
-            <DnsPanel defaultTarget={target.domain || target.name} />
-            <SslPanel defaultTarget={target.domain || target.name} />
-            <ReputationPanel defaultTarget={target.domain || target.name} />
-            <CategorizationPanel defaultTarget={target.domain || target.name} />
-            <AvailabilityPanel defaultTarget={target.domain || target.name} />
+            <WhoisPanel defaultTarget={targetDomain} />
+            <DnsPanel defaultTarget={targetDomain} />
+            <SslPanel defaultTarget={targetDomain} />
+            <ReputationPanel defaultTarget={targetDomain} />
+            <CategorizationPanel defaultTarget={targetDomain} />
+            <AvailabilityPanel defaultTarget={targetDomain} />
             <GeoPanel defaultTarget={hosts[0]?.ip || ""} />
             <ThreatPanel defaultTarget={hosts[0]?.ip || ""} />
             <VpnPanel defaultTarget={hosts[0]?.ip || ""} />
             <EmailPanel />
-            <ScreenshotPanel defaultTarget={`https://${target.domain || target.name}`} />
+            <ScreenshotPanel defaultTarget={webTarget} />
           </div>
         </div>
       )}
@@ -243,9 +247,9 @@ export function TargetDetailClient({
           <p className="text-xs text-muted-dim">Network infrastructure — BGP/ASN, CDN, netblocks, domain history</p>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <BgpPanel defaultTarget={hosts[0]?.ip || ""} />
-            <CdnPanel defaultTarget={target.domain || target.name} />
+            <CdnPanel defaultTarget={targetDomain} />
             <NetblocksPanel defaultTarget={hosts[0]?.ip || ""} />
-            <HistoryPanel defaultTarget={target.domain || target.name} />
+            <HistoryPanel defaultTarget={targetDomain} />
           </div>
         </div>
       )}
