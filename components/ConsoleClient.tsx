@@ -74,6 +74,17 @@ export function ConsoleClient({
   const scanStatus = useRef<Map<string, string>>(new Map(initialScans.map((s) => [s.id, s.status])));
   const liveRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  async function writeAudit(action: string, targetId: string | null, metadata: Record<string, unknown> = {}) {
+    const supabase = createClient();
+    const { error } = await supabase.from("audit_logs").insert({
+      actor_email: userEmail,
+      action,
+      target_id: targetId,
+      metadata,
+    });
+    if (error) console.error("Could not write audit event", error.message);
+  }
+
   useEffect(() => {
     Promise.all([fetch("/api/modules"), fetch("/api/pipelines")])
       .then(async ([modulesRes, profilesRes]) => {
@@ -342,6 +353,7 @@ export function ConsoleClient({
       return null;
     }
     setGroupList((g) => [{ ...data }, ...g]);
+    void writeAudit("group_created", data.id, { name });
     setNewGroup("");
     setGroupId(data.id);
     return data.id;
@@ -396,6 +408,7 @@ export function ConsoleClient({
         const { error } = await supabase.from("engagement_group_members").upsert(rows, { onConflict: "group_id,value", ignoreDuplicates: true });
         if (error) throw new Error(error.message);
         await loadFor(target);
+        void writeAudit("group_members_imported", target, { count: values.length });
         setInput("");
         setNotice({ kind: "ok", text: `Saved ${values.length} group member${values.length === 1 ? "" : "s"} — no scans queued` });
       } catch (error) {
@@ -447,6 +460,7 @@ export function ConsoleClient({
         }),
       });
       const data = await res.json();
+      void writeAudit("scan_request_completed", target, { requested: batch.length, accepted: data.accepted ?? 0 });
       if (!res.ok) {
         const resultErrors = (data.results ?? [])
           .filter((result: { status?: string; target?: string; error?: string }) => result.error)
@@ -595,6 +609,7 @@ export function ConsoleClient({
       const supabase = createClient();
       await supabase.from("scans").update({ status: "failed", error: "group deleted" }).eq("target_id", groupId).eq("status", "queued");
       await supabase.from("targets").delete().eq("id", groupId); // cascades to hosts/subdomains/findings/scans/scope
+      void writeAudit("group_deleted", groupId, { name: g?.name ?? null });
       setGroupList((list) => list.filter((x) => x.id !== groupId));
       setGroupId(consoleTargetId);
       setNotice({ kind: "ok", text: `Group "${g?.name ?? ""}" deleted.` });

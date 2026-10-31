@@ -171,6 +171,12 @@ export async function POST(request: Request) {
   }
 
   const accepted = results.filter((r) => r.status === "accepted").length;
+  await supabase.from("audit_logs").insert({
+    actor_email: user.email ?? null,
+    target_id: consoleTargetId,
+    action: "scan_batch_requested",
+    metadata: { total: rawList.length, accepted, results },
+  });
   return NextResponse.json({ accepted, total: rawList.length, results }, { status: accepted > 0 ? 202 : 400 });
 }
 

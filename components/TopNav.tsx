@@ -12,6 +12,7 @@ const LINKS = [
   { href: "/console", label: "Scan Console", icon: "🛰️" },
   { href: "/pipeline", label: "Pipeline", icon: "🧩" },
   { href: "/notifications", label: "Notifications", icon: "🔔" },
+  { href: "/audit", label: "Audit Log", icon: "🧾" },
 ];
 
 export function TopNav({ userEmail }: { userEmail: string }) {
