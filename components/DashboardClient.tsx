@@ -42,6 +42,7 @@ export function DashboardClient({
   const [filter, setFilter] = useState("All");
   const [risk, setRisk] = useState<"All" | "Critical" | "High" | "Medium" | "Low">("All");
   const [visible, setVisible] = useState(20);
+  const [visibleScanResults, setVisibleScanResults] = useState(20);
   const [findings, setFindings] = useState<Finding[]>(findingsInit);
   const [scans, setScans] = useState<Scan[]>(scansInit);
   const [toasts, setToasts] = useState<{ id: string; text: string; kind: "ok" | "err" }[]>([]);
@@ -169,6 +170,11 @@ export function DashboardClient({
     );
   }, [scans, search]);
 
+  useEffect(() => {
+    setVisible(20);
+    setVisibleScanResults(20);
+  }, [search, filter, risk]);
+
   return (
     <div className="flex flex-col gap-6">
       {/* Hero */}
@@ -275,7 +281,9 @@ export function DashboardClient({
               <option value="Medium">Medium+</option>
               <option value="Low">Low+</option>
             </select>
-            <span className="text-[11px] text-muted-dim">{filtered.length} groups</span>
+            <span className="text-[11px] text-muted-dim">
+              {filtered.length + (filtered.length === 0 ? filteredScans.length : 0)} results
+            </span>
           </div>
           <FilterChips
             categories={categories.map(([cat, count]) => ({ cat, count }))}
@@ -283,7 +291,33 @@ export function DashboardClient({
             onSelect={setFilter}
           />
 
-          {filtered.length === 0 ? (
+          {filtered.length === 0 && filteredScans.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">Scan results</p>
+                <p className="mt-1 text-[11px] text-muted-dim">
+                  Showing scanned IPs and domains matching &quot;{search || "recent scans"}&quot;.
+                </p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {filteredScans.slice(0, visibleScanResults).map((scan) => (
+                  <ScanRow
+                    key={`result-${scan.id}`}
+                    scan={scan}
+                    assignTargets={targets.map((target) => ({ id: target.id, name: target.name }))}
+                  />
+                ))}
+              </div>
+              {filteredScans.length > visibleScanResults && (
+                <button
+                  onClick={() => setVisibleScanResults((v) => v + 20)}
+                  className="mx-auto rounded-lg border border-white/10 px-4 py-1.5 text-xs text-muted transition-colors hover:text-foreground"
+                >
+                  Load more scan results ({filteredScans.length - visibleScanResults} more)
+                </button>
+              )}
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 px-8 py-20 text-center">
               <div className="mb-3 text-4xl opacity-20">🎯</div>
               <p className="text-sm font-medium text-muted">No targets found</p>
