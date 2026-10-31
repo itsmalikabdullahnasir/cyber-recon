@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Finding, Host, ModuleRegistry, PipelineModule, PipelineProfile, Scan, ScopeEntry, Subdomain, Target } from "@/lib/types";
+import type { EngagementGroupMember, Finding, Host, ModuleRegistry, PipelineModule, PipelineProfile, Scan, ScopeEntry, Subdomain, Target } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { ScopeManager } from "@/components/ScopeManager";
 import { ReconResults } from "@/components/ReconResults";
@@ -20,6 +20,7 @@ export function ConsoleClient({
   subdomains: subsInit,
   hosts: hostsInit,
   findings: findingsInit,
+  members: membersInit,
 }: {
   consoleTargetId: string;
   userEmail: string;
@@ -29,6 +30,7 @@ export function ConsoleClient({
   subdomains: Subdomain[];
   hosts: Host[];
   findings: Finding[];
+  members: EngagementGroupMember[];
 }) {
   const [groupId, setGroupId] = useState(consoleTargetId);
   const [newGroup, setNewGroup] = useState("");
@@ -48,6 +50,8 @@ export function ConsoleClient({
   const [subs, setSubs] = useState<Subdomain[]>(subsInit);
   const [hosts, setHosts] = useState<Host[]>(hostsInit);
   const [finds, setFinds] = useState<Finding[]>(findingsInit);
+  const [members, setMembers] = useState<EngagementGroupMember[]>(membersInit);
+  const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<number | null>(null);
   const [failed, setFailed] = useState<number | null>(null);
   const [statusCounts, setStatusCounts] = useState({ queued: null as number | null, running: null as number | null, done: null as number | null, failed: null as number | null, total: null as number | null });
@@ -126,12 +130,13 @@ export function ConsoleClient({
 
   const loadFor = useCallback(async (id: string) => {
     const supabase = createClient();
-    const [sc, sd, h, f, scp] = await Promise.all([
+    const [sc, sd, h, f, scp, gm] = await Promise.all([
       supabase.from("scans").select("*").eq("target_id", id).order("created_at", { ascending: false }).range(0, 24),
       supabase.from("subdomains").select("*").eq("target_id", id).order("created_at", { ascending: false }).range(0, 199),
       supabase.from("hosts").select("*").eq("target_id", id).range(0, 199),
       supabase.from("findings").select("*").eq("target_id", id).order("created_at", { ascending: false }).range(0, 199),
       supabase.from("scope_entries").select("*").eq("target_id", id).order("created_at", { ascending: true }),
+      supabase.from("engagement_group_members").select("*").eq("group_id", id).order("created_at", { ascending: false }),
     ]);
     setScans(sc.data ?? []);
     setScanListError(sc.error?.message ?? null);
@@ -141,6 +146,7 @@ export function ConsoleClient({
     setFinds(f.data ?? []);
     setResultsHasMore([sd.data, h.data, f.data].some((rows) => (rows?.length ?? 0) === 200));
     setScopeEntries(scp.data ?? []);
+    setMembers(gm.data ?? []);
     scanStatus.current = new Map((sc.data ?? []).map((s) => [s.id, s.status]));
     await refreshPending(id);
   }, [refreshPending]);
@@ -296,8 +302,43 @@ export function ConsoleClient({
     }
   }
 
-  async function launch() {
-    if (parsed.length === 0) {
+  async function importMembers() {
+      const values = [...new Set(parsed.map((value) => parseTarget(value)).filter((value): value is NonNullable<typeof value> => !!value).map((value) => value.value))];
+      if (!values.length) {
+        setNotice({ kind: "err", text: "Enter valid public domains or IPs to import." });
+        return;
+      }
+      setBusy(true);
+      try {
+        const target = await ensureGroup();
+        if (!target) return;
+        const supabase = createClient();
+        const rows = values.map((value) => {
+          const parsedTarget = parseTarget(value);
+          return { group_id: target, value, kind: parsedTarget?.kind ?? "domain" };
+        });
+        const { error } = await supabase.from("engagement_group_members").upsert(rows, { onConflict: "group_id,value", ignoreDuplicates: true });
+        if (error) throw new Error(error.message);
+        await loadFor(target);
+        setInput("");
+        setNotice({ kind: "ok", text: `Saved ${values.length} group member${values.length === 1 ? "" : "s"} — no scans queued` });
+      } catch (error) {
+        setNotice({ kind: "err", text: error instanceof Error ? error.message : "Could not import group members" });
+      } finally {
+        setBusy(false);
+      }
+    }
+
+  async function scanMembers(values: string[]) {
+    if (!values.length) return;
+    for (let i = 0; i < values.length; i += 50) {
+      await launch(values.slice(i, i + 50));
+    }
+  }
+
+  async function launch(targetsOverride?: string[]) {
+    const targetsToLaunch = targetsOverride ?? parsed;
+    if (targetsToLaunch.length === 0) {
       setNotice({ kind: "err", text: "Enter at least one IP or domain" });
       return;
     }
@@ -306,7 +347,7 @@ export function ConsoleClient({
     try {
       const target = await ensureGroup();
       if (!target) return;
-      const batch = parsed.slice(0, 50);
+      const batch = targetsToLaunch.slice(0, 50);
       // Warn about targets that already have a scan in this group — but allow continuing.
       const dupes = batch.filter((t) => scans.some((s) => s.input === t));
       if (
@@ -344,7 +385,7 @@ export function ConsoleClient({
       } else {
         const refused = (data.results ?? []).filter((r: { status: string }) => r.status !== "accepted");
         const parts = [`${data.accepted}/${data.total} scan(s) queued`];
-        if (parsed.length > 50) parts.push(`(first 50 of ${parsed.length.toLocaleString()} — Import the rest)`);
+        if (targetsToLaunch.length > 50) parts.push(`(first 50 of ${targetsToLaunch.length.toLocaleString()} — Import the rest)`);
         refused.slice(0, 5).forEach((r: { target: string; error?: string }) => parts.push(`✗ ${r.target}: ${r.error}`));
         setNotice({ kind: data.accepted > 0 ? "ok" : "err", text: parts.join(" · ") });
         if (data.accepted > 0) setInput("");
@@ -364,6 +405,18 @@ export function ConsoleClient({
       const target = await ensureGroup();
       if (!target) return;
       const supabase = createClient();
+      const memberRows = importable.flatMap((item) => {
+        const entries = [item.name, item.ip].filter((value): value is string => !!value);
+        return entries.flatMap((value) => {
+          const parsedTarget = parseTarget(value);
+          return parsedTarget ? [{ group_id: target, value: parsedTarget.value, kind: parsedTarget.kind }] : [];
+        });
+      });
+      const { error: memberError } = await supabase.from("engagement_group_members").upsert(memberRows, {
+        onConflict: "group_id,value",
+        ignoreDuplicates: true,
+      });
+      if (memberError) throw new Error(memberError.message);
       const [{ data: exSubs }, { data: exHosts }] = await Promise.all([
         supabase.from("subdomains").select("name").eq("target_id", target),
         supabase.from("hosts").select("ip").eq("target_id", target),
@@ -520,6 +573,19 @@ export function ConsoleClient({
   const locked = pending !== null && pending > 0;
   const activeScan = scans.find((s) => s.status === "queued" || s.status === "running");
   const runningScan = scans.find((s) => s.status === "running") ?? null;
+  const memberLastScan = useMemo(() => {
+    const result = new Map<string, string>();
+    for (const scan of scans) {
+      if (!result.has(scan.input) && scan.finished_at) result.set(scan.input, scan.finished_at);
+    }
+    return result;
+  }, [scans]);
+  const [skipRecent, setSkipRecent] = useState(false);
+  const scanableMembers = members.filter((member) => {
+    if (!skipRecent) return true;
+    const last = memberLastScan.get(member.value);
+    return !last || Date.now() - new Date(last).getTime() > 24 * 60 * 60 * 1000;
+  });
   const selectableGroups = groupList.filter((g) => g.id !== consoleTargetId);
   const assignTargets = groupList.filter((g) => !g.is_console && g.id !== groupId);
 
@@ -644,7 +710,7 @@ export function ConsoleClient({
             </select>
           </label>
           <button
-            onClick={launch}
+            onClick={() => void launch()}
             disabled={busy || locked || parsed.length === 0}
             className="btn btn-accent"
           >
@@ -665,6 +731,14 @@ export function ConsoleClient({
               </button>
             </>
           )}
+          <button
+            onClick={() => void importMembers()}
+            disabled={busy || groupId === "__new__" || parsed.length === 0}
+            className="btn"
+            title="Save valid entries as group members without creating scans"
+          >
+            + Import to group (no scan)
+          </button>
           {activeScan && (
             <span className="flex items-center gap-1.5 text-[11px] text-amber-400">
               <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400 text-amber-400" />
@@ -672,6 +746,63 @@ export function ConsoleClient({
             </span>
           )}
         </div>
+
+        {groupId !== "__new__" && members.length > 0 && (
+          <div className="mt-4 rounded-xl border border-white/5 bg-background/30 p-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
+                Group members ({members.length})
+              </p>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 text-[10px] text-muted-dim">
+                  <input type="checkbox" checked={skipRecent} onChange={(e) => setSkipRecent(e.target.checked)} />
+                  Skip scanned in last 24h
+                </label>
+                <button
+                  type="button"
+                  disabled={busy || locked || scanableMembers.length === 0}
+                  onClick={() => void scanMembers(scanableMembers.map((member) => member.value))}
+                  className="rounded-md border border-accent/30 bg-accent/15 px-2.5 py-1 text-[10px] font-semibold text-accent disabled:opacity-50"
+                >
+                  Scan all ({scanableMembers.length})
+                </button>
+                {selectedMembers.size > 0 && (
+                  <button
+                    type="button"
+                    disabled={busy || locked}
+                    onClick={() => void scanMembers([...selectedMembers])}
+                    className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold text-amber-300 disabled:opacity-50"
+                  >
+                    Scan selected ({selectedMembers.size})
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="grid max-h-56 gap-1 overflow-y-auto md:grid-cols-2">
+              {members.map((member) => {
+                const last = memberLastScan.get(member.value);
+                return (
+                  <label key={member.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-white/5">
+                    <input
+                      type="checkbox"
+                      checked={selectedMembers.has(member.value)}
+                      onChange={() => setSelectedMembers((current) => {
+                        const next = new Set(current);
+                        if (next.has(member.value)) next.delete(member.value);
+                        else next.add(member.value);
+                        return next;
+                      })}
+                    />
+                    <span className="min-w-0 flex-1 truncate font-mono">{member.value}</span>
+                    <span className={last ? "text-[10px] text-muted-dim" : "text-[10px] text-amber-300"}>
+                      {last ? `scanned ${new Date(last).toLocaleDateString()}` : "not scanned yet"}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-dim">
           <span>{selectedPipelineData?.name ?? "Workflow"}:</span>

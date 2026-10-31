@@ -136,6 +136,15 @@ export interface ScopeEntry {
   created_at: string;
 }
 
+export interface EngagementGroupMember {
+  id: string;
+  group_id: string;
+  value: string;
+  kind: "domain" | "ip";
+  created_at: string;
+  created_by: string | null;
+}
+
 export type ScanStatus = "queued" | "running" | "done" | "failed";
 
 export interface Scan {
