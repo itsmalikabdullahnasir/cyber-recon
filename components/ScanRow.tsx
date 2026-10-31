@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import type { Scan } from "@/lib/types";
+import { useEffect, useState } from "react";
+import type { Scan, Host, Subdomain, Finding } from "@/lib/types";
+import { COMMON_PORTS } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { UserAvatar } from "@/components/UserAvatar";
 
@@ -58,6 +59,36 @@ function scanDuration(scan: Scan): string | null {
 export function ScanRow({ scan }: { scan: Scan }) {
   const [busy, setBusy] = useState(false);
   const [openStage, setOpenStage] = useState<string | null>(null);
+  const [details, setDetails] = useState<ScanDetails | null>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+
+  // Lazily pull this scan's actual results (hosts/subdomains/findings) the first
+  // time any stage is opened, so the detail card can show real data.
+  useEffect(() => {
+    if (!openStage || details) return;
+    let cancelled = false;
+    setLoadingDetails(true);
+    const supabase = createClient();
+    Promise.all([
+      supabase.from("hosts").select("*").eq("scan_id", scan.id),
+      supabase.from("subdomains").select("*").eq("scan_id", scan.id),
+      supabase.from("findings").select("*").eq("scan_id", scan.id),
+    ])
+      .then(([h, s, f]) => {
+        if (cancelled) return;
+        setDetails({
+          hosts: (h.data as Host[]) ?? [],
+          subs: (s.data as Subdomain[]) ?? [],
+          finds: (f.data as Finding[]) ?? [],
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDetails(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [openStage, details, scan.id]);
 
   async function updateScan(values: Record<string, unknown>, failMsg: string) {
     setBusy(true);
@@ -176,7 +207,13 @@ export function ScanRow({ scan }: { scan: Scan }) {
       </div>
 
       {openStage && stages[openStage] && (
-        <StageDetail name={openStage} stage={stages[openStage]} onClose={() => setOpenStage(null)} />
+        <StageDetail
+          name={openStage}
+          stage={stages[openStage]}
+          details={details}
+          loading={loadingDetails}
+          onClose={() => setOpenStage(null)}
+        />
       )}
       {scan.error && (
         <p className={`mt-2 text-[11px] ${cancelled ? "text-muted-dim" : "text-danger"}`}>{scan.error}</p>
@@ -209,21 +246,45 @@ export function ScanRow({ scan }: { scan: Scan }) {
   );
 }
 
-// Detail card shown when a stage chip is clicked — lists everything the worker
-// recorded for that stage (counts, skips, errors, detail text).
+type ScanDetails = { hosts: Host[]; subs: Subdomain[]; finds: Finding[] };
+
+const SEV_COLOR: Record<string, string> = {
+  Critical: "#f43f5e",
+  High: "#ec4899",
+  Medium: "#f59e0b",
+  Low: "#a855f7",
+  Info: "#5c5775",
+};
+
+// Which finding `source` values belong to which module/stage.
+const STAGE_FINDING_SOURCES: Record<string, string[]> = {
+  cve: ["cve-local"],
+  origin: ["origin"],
+  testssl: ["testssl"],
+  dirs: ["feroxbuster"],
+  nuclei: ["nuclei"],
+  nikto: ["nikto"],
+};
+
+// Detail card shown when a stage chip is clicked: the stage's progress meta
+// plus the real results this scan produced for that module.
 function StageDetail({
   name,
   stage,
+  details,
+  loading,
   onClose,
 }: {
   name: string;
   stage: Record<string, unknown>;
+  details: ScanDetails | null;
+  loading: boolean;
   onClose: () => void;
 }) {
   const label = STAGE_LABELS[name] ?? name;
   const status = String(stage.status ?? "");
   const at = typeof stage.at === "string" ? new Date(stage.at).toLocaleString() : null;
-  const entries = Object.entries(stage).filter(([k]) => k !== "status" && k !== "at");
+  const meta = Object.entries(stage).filter(([k]) => k !== "status" && k !== "at");
 
   return (
     <div className="mt-2 rounded-lg border border-accent/20 bg-accent/[0.04] p-3 text-[11px]">
@@ -239,21 +300,142 @@ function StageDetail({
           ✕
         </button>
       </div>
-      {at && <p className="mb-1 text-[10px] text-muted-dim">updated {at}</p>}
-      {entries.length === 0 ? (
-        <p className="text-muted-dim">No extra details recorded for this stage.</p>
-      ) : (
-        <div className="flex flex-col gap-1">
-          {entries.map(([k, v]) => (
-            <div key={k} className="flex gap-2">
-              <span className="w-28 shrink-0 text-muted-dim">{k.replace(/_/g, " ")}</span>
-              <span className="min-w-0 flex-1 break-words">{formatStageValue(v)}</span>
-            </div>
+      {at && <p className="mb-1.5 text-[10px] text-muted-dim">updated {at}</p>}
+
+      {meta.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-x-4 gap-y-0.5 border-b border-white/5 pb-2">
+          {meta.map(([k, v]) => (
+            <span key={k} className="text-[10px] text-muted-dim">
+              {k.replace(/_/g, " ")}: <span className="text-foreground">{formatStageValue(v)}</span>
+            </span>
           ))}
         </div>
       )}
+
+      {loading ? (
+        <p className="text-muted-dim">Loading results…</p>
+      ) : details ? (
+        <StageResults name={name} data={details} />
+      ) : (
+        <p className="text-muted-dim">No results loaded.</p>
+      )}
     </div>
   );
+}
+
+function StageEmpty({ text }: { text: string }) {
+  return <p className="text-muted-dim">{text}</p>;
+}
+
+function StageResults({ name, data }: { name: string; data: ScanDetails }) {
+  // Port scan — ports plus what each one is for (443 → HTTPS, etc.).
+  if (name === "nmap") {
+    const hosts = data.hosts.filter((h) => (h.ports?.length ?? 0) > 0 || h.open_ports);
+    if (!hosts.length) return <StageEmpty text="No open ports recorded." />;
+    return (
+      <div className="flex flex-col gap-2">
+        {hosts.map((h) => (
+          <div key={h.id}>
+            <p className="font-mono text-[11px] font-semibold">
+              {h.ip}
+              {h.hostname ? ` (${h.hostname})` : ""}
+              {h.os_guess ? ` · ${h.os_guess}` : ""}
+            </p>
+            <div className="mt-0.5 flex flex-col gap-0.5">
+              {(h.ports?.length ?? 0) > 0 ? (
+                (h.ports ?? []).map((p, i) => (
+                  <div key={i} className="flex gap-2 text-[10px]">
+                    <span className="w-16 shrink-0 font-mono text-accent">
+                      {p.port}/{p.protocol}
+                    </span>
+                    <span className="w-24 shrink-0 text-muted">{COMMON_PORTS[p.port] ?? p.service ?? "?"}</span>
+                    <span className="min-w-0 flex-1 text-muted-dim">
+                      {[p.product, p.version].filter(Boolean).join(" ") || p.service || ""}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <span className="text-[10px] text-muted-dim">{h.open_ports}</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (name === "subfinder" || name === "dnsx") {
+    if (!data.subs.length) return <StageEmpty text="No subdomains recorded." />;
+    return (
+      <div className="flex flex-col gap-0.5">
+        {data.subs.slice(0, 80).map((s) => (
+          <div key={s.id} className="flex gap-2 text-[10px]">
+            <span className="min-w-0 flex-1 truncate font-mono">{s.name}</span>
+            <span className="shrink-0 text-muted-dim">{s.ip ?? s.resolved_ips?.join(", ") ?? "—"}</span>
+            {s.is_cdn && <span className="shrink-0 text-amber-400">CDN</span>}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (name === "httpx" || name === "fingerprint") {
+    const withHttp = data.subs.filter((s) => s.http_status || s.url);
+    const list = withHttp.length ? withHttp : data.subs;
+    if (!list.length) return <StageEmpty text="No HTTP data recorded." />;
+    return (
+      <div className="flex flex-col gap-1">
+        {list.slice(0, 60).map((s) => {
+          const host = data.hosts.find((h) => h.ip === s.ip);
+          const line = [
+            s.webserver ? `server: ${s.webserver}` : "",
+            s.tech?.length ? s.tech.join(", ") : "",
+            name === "fingerprint" && host?.waf ? `WAF: ${host.waf}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return (
+            <div key={s.id} className="text-[10px]">
+              <div className="flex gap-2">
+                <span className="min-w-0 flex-1 truncate font-mono">{s.url ?? s.name}</span>
+                {s.http_status ? <span className="shrink-0 text-accent">{s.http_status}</span> : null}
+              </div>
+              {line && <p className="text-muted-dim">{line}</p>}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const sources = STAGE_FINDING_SOURCES[name];
+  if (sources) {
+    const items = data.finds.filter((f) => sources.includes(f.source ?? ""));
+    if (!items.length) return <StageEmpty text="No findings from this module." />;
+    return (
+      <div className="flex flex-col gap-1.5">
+        {items.slice(0, 60).map((f) => (
+          <div key={f.id} className="border-l-2 pl-2" style={{ borderColor: SEV_COLOR[f.severity] ?? "#5c5775" }}>
+            <div className="flex gap-2 text-[10px]">
+              <span className="shrink-0 font-semibold" style={{ color: SEV_COLOR[f.severity] }}>
+                {f.severity}
+              </span>
+              <span className="min-w-0 flex-1">{f.title}</span>
+            </div>
+            {f.affected_url && <p className="break-all font-mono text-[9px] text-muted-dim">{f.affected_url}</p>}
+            {f.cve_id && (
+              <span className="text-[9px] text-accent">
+                {f.cve_id}
+                {typeof f.cvss === "number" ? ` · CVSS ${f.cvss}` : ""}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <StageEmpty text="No per-item results for this module." />;
 }
 
 function formatStageValue(v: unknown): string {

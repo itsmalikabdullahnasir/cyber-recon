@@ -182,7 +182,7 @@ export function DashboardClient({
       </div>
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="animate-fade-in grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard label="Targets" value={targets.length} color="#a855f7" series={[1, 2, 2, 3, targets.length]} />
         <KpiCard label="Live hosts" value={liveHosts} sub={`${hosts.length} total`} color="#d946ef" series={[2, 3, 5, 4, liveHosts]} />
         <KpiCard label="Findings" value={findings.length} sub={`${criticalFindings} crit/high`} color="#ec4899" accent={criticalFindings > 0} series={scanSeries} />
@@ -190,7 +190,7 @@ export function DashboardClient({
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+      <div className="animate-fade-in grid grid-cols-1 gap-3 lg:grid-cols-3">
         <div className="card card-hover p-5">
           <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Findings by severity</p>
           <div className="flex items-center gap-5">
