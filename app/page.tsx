@@ -11,7 +11,7 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: targets }, { count: targetCount }, { count: hostCount }, { count: findingCount }, { count: liveHostCount }, { count: criticalFindingCount }, { count: highFindingCount }, { count: scanCount }, { count: activeScanCount }, { count: criticalCount }, { count: highCount }, { count: mediumCount }, { count: lowCount }, { count: infoCount }] =
+  const [{ data: targets }, { count: targetCount }, { count: hostCount }, { count: findingCount }, { count: liveHostCount }, { count: criticalFindingCount }, { count: highFindingCount }, { count: scanCount }, { count: activeScanCount }, { count: criticalCount }, { count: highCount }, { count: mediumCount }, { count: lowCount }, { count: infoCount }, { data: runningScan }] =
     await Promise.all([
       supabase
     .from("targets")
@@ -31,6 +31,7 @@ export default async function DashboardPage() {
       supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Medium"),
       supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Low"),
       supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Info"),
+      supabase.from("scans").select("*").eq("status", "running").order("started_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
 
   const { data: hosts } = await supabase.from("hosts").select("*").range(0, 199);
@@ -63,6 +64,7 @@ export default async function DashboardPage() {
           findings={findings ?? []}
           activities={activities ?? []}
           scans={scans ?? []}
+          runningScan={runningScan}
           totals={{
             targets: targetCount ?? 0,
             hosts: hostCount ?? 0,

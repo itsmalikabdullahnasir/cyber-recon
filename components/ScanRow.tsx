@@ -159,7 +159,8 @@ export function ScanRow({
     );
 
   const stages = scan.stages || {};
-  const running = scan.status === "running" || scan.status === "queued";
+  const running = scan.status === "running";
+  const queued = scan.status === "queued";
   // A user-cancelled scan is stored as failed with this error. Show it as its
   // own "stopped" state so the record reads clearly (not a real failure).
   const cancelled = scan.status === "failed" && /cancel|stopped/i.test(scan.error ?? "");
@@ -184,7 +185,9 @@ export function ScanRow({
           setDetailOpen(true);
         }
       }}
-      className={`cursor-pointer rounded-xl border p-5 transition-colors hover:border-accent/30 ${running ? "border-amber-500/30 bg-amber-500/[0.04]" : "border-white/5 bg-surface"}`}
+      className={`cursor-pointer rounded-xl border p-5 transition-colors hover:border-accent/30 ${
+        running ? "border-amber-500/40 bg-amber-500/[0.08]" : queued ? "border-indigo-500/25 bg-indigo-500/[0.04]" : "border-white/5 bg-surface"
+      }`}
     >
       {detailOpen && <ScanDetailModal scan={scan} onClose={() => setDetailOpen(false)} />}
       {scan.status === "running" && currentLabel && (
@@ -218,7 +221,9 @@ export function ScanRow({
                 ? "text-zinc-400"
                 : displayStatus === "failed"
                   ? "text-rose-400"
-                  : "text-amber-400"
+                  : displayStatus === "running"
+                    ? "text-amber-400"
+                    : "text-indigo-400"
           }`}
         >
           {displayStatus}

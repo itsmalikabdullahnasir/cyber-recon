@@ -22,12 +22,42 @@ const SEVERITY_COLORS: Record<string, string> = {
   Info: "#5c5775",
 };
 
+function NowScanning({ scan }: { scan: Scan | null }) {
+  const stage = scan?.stage ? scan.stages?.[scan.stage] : null;
+  const host = stage && typeof stage === "object"
+    ? ["host", "ip", "current_host", "current_ip", "target"].map((key) => stage[key]).find((value) => typeof value === "string")
+    : null;
+
+  return (
+    <div className={`rounded-xl border p-4 ${scan ? "border-amber-500/30 bg-amber-500/[0.08]" : "border-white/5 bg-surface"}`}>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className={`h-2 w-2 rounded-full ${scan ? "animate-pulse bg-amber-400" : "bg-muted-dim"}`} />
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Now scanning</p>
+          <p className={`mt-1 text-sm font-semibold ${scan ? "text-amber-200" : "text-muted"}`}>
+            {scan ? scan.input : "Idle — queue paused"}
+          </p>
+        </div>
+        {scan && (
+          <div className="ml-auto flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 font-medium text-amber-300">
+              {scan.stage ?? "starting"}
+            </span>
+            {host && <span className="font-mono text-amber-200/80">{host}</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function DashboardClient({
   targets: targetsAll,
   hosts,
   findings: findingsInit,
   activities,
   scans: scansInit,
+  runningScan: runningScanInit,
   totals,
   userName,
 }: {
@@ -36,6 +66,7 @@ export function DashboardClient({
   findings: Finding[];
   activities: Activity[];
   scans: Scan[];
+  runningScan: Scan | null;
   totals: {
     targets: number;
     hosts: number;
@@ -59,6 +90,7 @@ export function DashboardClient({
   const [visibleScanResults, setVisibleScanResults] = useState(20);
   const [findings, setFindings] = useState<Finding[]>(findingsInit);
   const [scans, setScans] = useState<Scan[]>(scansInit);
+  const [runningScan, setRunningScan] = useState<Scan | null>(runningScanInit);
   const [counts, setCounts] = useState(totals);
   const [toasts, setToasts] = useState<{ id: string; text: string; kind: "ok" | "err" }[]>([]);
   const scanStatus = useRef<Map<string, string>>(new Map(scansInit.map((s) => [s.id, s.status])));
@@ -112,8 +144,12 @@ export function DashboardClient({
       if (!refreshPending.current) return;
       refreshPending.current = false;
       const supabase = createClient();
-      const { data } = await supabase.from("scans").select("*").order("created_at", { ascending: false }).range(0, 39);
+      const [{ data }, { data: currentRunning }] = await Promise.all([
+        supabase.from("scans").select("*").order("created_at", { ascending: false }).range(0, 39),
+        supabase.from("scans").select("*").eq("status", "running").order("started_at", { ascending: false }).limit(1).maybeSingle(),
+      ]);
       if (data) setScans(data);
+      setRunningScan(currentRunning);
       await refreshCounts();
     }, 1500);
   };
@@ -281,9 +317,11 @@ export function DashboardClient({
               )}
             </p>
           </div>
+
           <EncryptButton text="Launch a scan" onClick={() => router.push("/console")} />
         </div>
       </div>
+      <NowScanning scan={runningScan} />
 
       {/* KPI row */}
       <div className="animate-fade-in grid grid-cols-2 gap-3 lg:grid-cols-4">

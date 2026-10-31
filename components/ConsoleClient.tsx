@@ -55,6 +55,7 @@ export function ConsoleClient({
   const [visibleScans, setVisibleScans] = useState(8);
   const [resultsHasMore, setResultsHasMore] = useState(false);
   const scanStatus = useRef<Map<string, string>>(new Map(initialScans.map((s) => [s.id, s.status])));
+  const liveRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     Promise.all([fetch("/api/modules"), fetch("/api/pipelines")])
@@ -194,6 +195,13 @@ export function ConsoleClient({
   // Live scans for the selected group; reload results when a scan finishes.
   useEffect(() => {
     const supabase = createClient();
+    const scheduleRefresh = () => {
+      if (liveRefreshTimer.current) return;
+      liveRefreshTimer.current = setTimeout(() => {
+        liveRefreshTimer.current = null;
+        void loadFor(groupId);
+      }, 1500);
+    };
     const channel = supabase
       .channel(`console:${groupId}`)
       .on(
@@ -203,19 +211,17 @@ export function ConsoleClient({
           const row = payload.new as Scan;
           const prev = scanStatus.current.get(row.id);
           scanStatus.current.set(row.id, row.status);
-          setScans((p) =>
-            [row, ...p.filter((s) => s.id !== row.id)].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 25),
-          );
           if (prev !== row.status && (row.status === "done" || row.status === "running" || row.status === "failed")) {
-            loadResults(groupId);
+            scheduleRefresh();
           }
-          refreshPending(groupId);
+          scheduleRefresh();
         },
       )
       .subscribe();
     const t = setTimeout(() => refreshPending(groupId), 0);
     return () => {
       clearTimeout(t);
+      if (liveRefreshTimer.current) clearTimeout(liveRefreshTimer.current);
       supabase.removeChannel(channel);
     };
   }, [groupId, loadResults, refreshPending]);
@@ -500,6 +506,7 @@ export function ConsoleClient({
 
   const locked = pending > 0;
   const activeScan = scans.find((s) => s.status === "queued" || s.status === "running");
+  const runningScan = scans.find((s) => s.status === "running") ?? null;
   const selectableGroups = groupList.filter((g) => g.id !== consoleTargetId);
   const assignTargets = groupList.filter((g) => !g.is_console && g.id !== groupId);
 
@@ -687,6 +694,23 @@ export function ConsoleClient({
             )}
           </div>
         )}
+      </div>
+
+      <div className={`rounded-xl border p-4 ${runningScan ? "border-amber-500/30 bg-amber-500/[0.08]" : "border-white/5 bg-surface"}`}>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className={`h-2 w-2 rounded-full ${runningScan ? "animate-pulse bg-amber-400" : "bg-muted-dim"}`} />
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Now scanning</p>
+            <p className={`mt-1 text-sm font-semibold ${runningScan ? "text-amber-200" : "text-muted"}`}>
+              {runningScan ? runningScan.input : "Idle — queue paused"}
+            </p>
+          </div>
+          {runningScan && (
+            <span className="ml-auto rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-300">
+              {runningScan.stage ?? "starting"}
+            </span>
+          )}
+        </div>
       </div>
 
       <details className="group">

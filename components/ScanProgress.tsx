@@ -4,108 +4,65 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 
-// A compact, always-on scan progress pill shown in the nav on every page.
-// It tracks a rolling "batch" of scans: once scans go active it counts how
-// many of that batch have finished, and briefly shows a done summary when the
-// batch clears. State is driven entirely by Supabase Realtime, so it stays
-// correct no matter which page you're on.
+type QueueCounts = { queued: number; running: number; done: number; failed: number };
+
 export function ScanProgress() {
-  const statusById = useRef<Map<string, string>>(new Map());
-  const batch = useRef<Set<string>>(new Set());
-  const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [completed, setCompleted] = useState<number | null>(null);
-  const [counts, setCounts] = useState<{ active: number; total: number }>({ active: 0, total: 0 });
+  const [counts, setCounts] = useState<QueueCounts>({ queued: 0, running: 0, done: 0, failed: 0 });
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pending = useRef(false);
 
   useEffect(() => {
     const supabase = createClient();
-
-    function recompute() {
-      const ids = [...batch.current];
-      const active = ids.filter((id) => {
-        const s = statusById.current.get(id);
-        return s === "queued" || s === "running";
-      }).length;
-      setCounts({ active, total: ids.length });
-      if (active === 0 && ids.length > 0 && !clearTimer.current) {
-        setCompleted(ids.length);
-        clearTimer.current = setTimeout(() => {
-          batch.current.clear();
-          setCompleted(null);
-          clearTimer.current = null;
-          setCounts({ active: 0, total: 0 });
-        }, 6000);
-      } else if (active > 0 && clearTimer.current) {
-        clearTimeout(clearTimer.current);
-        clearTimer.current = null;
-        setCompleted(null);
-      }
-    }
-
-    // Seed with any scans already in flight when this page loaded.
-    supabase
-      .from("scans")
-      .select("id, status")
-      .in("status", ["queued", "running"])
-      .then(({ data }) => {
-        for (const row of data ?? []) {
-          statusById.current.set(row.id, row.status);
-          batch.current.add(row.id);
-        }
-        recompute();
+    const refresh = async () => {
+      const results = await Promise.all(["queued", "running", "done", "failed"].map((status) =>
+        supabase.from("scans").select("id", { count: "exact", head: true }).eq("status", status),
+      ));
+      setCounts({
+        queued: results[0].count ?? 0,
+        running: results[1].count ?? 0,
+        done: results[2].count ?? 0,
+        failed: results[3].count ?? 0,
       });
-
+    };
+    const schedule = () => {
+      pending.current = true;
+      if (timer.current) return;
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        if (pending.current) {
+          pending.current = false;
+          void refresh();
+        }
+      }, 1500);
+    };
+    void refresh();
     const channel = supabase
       .channel("scan-progress")
-      .on("postgres_changes", { event: "*", schema: "public", table: "scans" }, (payload) => {
-        const row = payload.new as { id?: string; status?: string };
-        if (!row?.id || !row.status) return;
-        statusById.current.set(row.id, row.status);
-        if (row.status === "queued" || row.status === "running") batch.current.add(row.id);
-        recompute();
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "scans" }, schedule)
       .subscribe();
 
     return () => {
-      if (clearTimer.current) clearTimeout(clearTimer.current);
+      if (timer.current) clearTimeout(timer.current);
       supabase.removeChannel(channel);
     };
   }, []);
 
-  const { active, total } = counts;
-  const done = total - active;
+  const active = counts.queued + counts.running;
+  const total = active + counts.done + counts.failed;
+  if (total === 0) return null;
 
-  if (active > 0) {
-    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-    return (
-      <Link
-        href="/console"
-        title={`${done} of ${total} scans done`}
-        className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5"
-      >
-        <svg className="h-3.5 w-3.5 animate-spin text-amber-400" viewBox="0 0 24 24" fill="none">
-          <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-          <path className="opacity-90" d="M12 2a10 10 0 0110 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-        </svg>
-        <span className="text-[11px] font-medium text-amber-300">
-          {done}/{total}
-        </span>
-        <span className="hidden h-1.5 w-16 overflow-hidden rounded-full bg-amber-500/20 sm:block">
-          <span className="block h-full rounded-full bg-amber-400 transition-all duration-500" style={{ width: `${pct}%` }} />
-        </span>
-      </Link>
-    );
-  }
-
-  if (completed !== null) {
-    return (
-      <Link
-        href="/console"
-        className="animate-fade-in flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-medium text-emerald-300"
-      >
-        ✓ {completed} done
-      </Link>
-    );
-  }
-
-  return null;
+  return (
+    <Link
+      href="/console"
+      title={`${active.toLocaleString()} queued or running; ${counts.done.toLocaleString()} done`}
+      className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${
+        active > 0 ? "border-amber-500/30 bg-amber-500/10" : "border-emerald-500/30 bg-emerald-500/10"
+      }`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${active > 0 ? "animate-pulse bg-amber-400" : "bg-emerald-400"}`} />
+      <span className={`text-[11px] font-medium ${active > 0 ? "text-amber-300" : "text-emerald-300"}`}>
+        Queue: {active.toLocaleString()} active
+      </span>
+    </Link>
+  );
 }
