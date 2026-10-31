@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { safeFetch } from "@/lib/ssrfGuard";
+
+export const runtime = "nodejs";
 
 const WAF_SIGNATURES: Record<string, string[]> = {
   "Cloudflare": ["cf-ray", "cf-cache-status", "cloudflare"],
@@ -109,10 +112,9 @@ export async function POST(request: Request) {
     const target = url.startsWith("http") ? url : `https://${url}`;
 
     // Fetch the target
-    const res = await fetch(target, {
+    const res = await safeFetch(target, {
       method: "GET",
       headers: { "User-Agent": "CyberRecon-Scanner/1.0" },
-      redirect: "follow",
       signal: AbortSignal.timeout(10000),
     });
 
@@ -143,7 +145,7 @@ export async function POST(request: Request) {
     if (!test || test === "methods") {
       // Test allowed methods via OPTIONS
       try {
-        const optRes = await fetch(target, {
+        const optRes = await safeFetch(target, {
           method: "OPTIONS",
           headers: { "User-Agent": "CyberRecon-Scanner/1.0" },
           signal: AbortSignal.timeout(5000),

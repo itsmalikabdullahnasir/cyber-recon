@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { safeFetch } from "@/lib/ssrfGuard";
+
+export const runtime = "nodejs";
 
 const WHOIS_KEY = process.env.WHOISXML_API_KEY;
 
@@ -29,10 +32,9 @@ async function lookupBGP(ip: string) {
 
 async function detectCDN(url: string) {
   try {
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       method: "HEAD",
       headers: { "User-Agent": "CyberRecon-Scanner/1.0" },
-      redirect: "follow",
       signal: AbortSignal.timeout(8000),
     });
     const headers: Record<string, string> = {};

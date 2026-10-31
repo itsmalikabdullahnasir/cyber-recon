@@ -158,6 +158,14 @@ class Pipeline:
             if self._enabled("dnsx"):
                 self.stage("dnsx", "running")
                 resolved = dnsx.run([f["name"] for f in found], self.workdir)
+                # SSRF guard: never probe a name that resolves to a private /
+                # internal address (e.g. a domain pointed at 127.0.0.1 or a
+                # cloud metadata IP). Strip private IPs; drop names left with none.
+                resolved = {
+                    name: {**r, "ips": [ip for ip in r["ips"] if normalize_public_ip(ip)]}
+                    for name, r in resolved.items()
+                }
+                resolved = {name: r for name, r in resolved.items() if r["ips"]}
                 self._apply_dns(resolved)
                 self.stage("dnsx", "done", count=len(resolved), unresolved=len(found) - len(resolved))
             else:
