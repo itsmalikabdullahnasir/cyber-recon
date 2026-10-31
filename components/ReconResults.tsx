@@ -19,6 +19,7 @@ const SEV_RANK: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low:
 interface Row {
   subId: string | null;
   hostId: string | null;
+  risk: number | null;
   subdomain: string;
   ip: string | null;
   cloudflare: boolean;
@@ -149,6 +150,7 @@ export function ReconResults({
       return {
         subId: s.id,
         hostId: host?.id ?? null,
+        risk: host?.risk_score ?? null,
         subdomain: s.name,
         ip,
         cloudflare: !!s.is_cdn && (s.cdn_name?.toLowerCase().includes("cloudflare") ?? !s.cdn_name),
@@ -178,6 +180,7 @@ export function ReconResults({
         built.push({
           subId: null,
           hostId: h.id,
+          risk: h.risk_score ?? null,
           subdomain: h.hostname ?? h.ip,
           ip: h.ip,
           cloudflare: !!h.is_cdn && (h.cdn_name?.toLowerCase().includes("cloudflare") ?? false),
@@ -196,7 +199,7 @@ export function ReconResults({
 
     return built.sort((a, b) => {
       const sev = (r: Row) => Math.max(0, ...r.findings.map((f) => SEV_RANK[f.severity] ?? 0));
-      return sev(b) - sev(a) || a.subdomain.localeCompare(b.subdomain);
+      return (b.risk ?? -1) - (a.risk ?? -1) || sev(b) - sev(a) || a.subdomain.localeCompare(b.subdomain);
     });
   }, [subdomains, hosts, findings]);
 
@@ -353,6 +356,7 @@ export function ReconResults({
                   />
                 </th>
               )}
+              <th className="px-3 py-2">Risk</th>
               <th className="px-3 py-2">Subdomain</th>
               <th className="px-3 py-2">IP</th>
               <th className="px-3 py-2">CDN</th>
@@ -370,6 +374,26 @@ export function ReconResults({
                     <input type="checkbox" checked={selected.has(rowKey(r))} onChange={() => toggle(rowKey(r))} />
                   </td>
                 )}
+                <td className="px-3 py-2">
+                  {r.risk === null ? (
+                    <span className="text-muted-dim">—</span>
+                  ) : (
+                    <span
+                      className={`inline-flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-bold ${
+                        r.risk >= 70
+                          ? "bg-rose-500/15 text-rose-300"
+                          : r.risk >= 40
+                            ? "bg-amber-500/15 text-amber-300"
+                            : r.risk >= 15
+                              ? "bg-violet-500/15 text-violet-300"
+                              : "bg-white/5 text-muted-dim"
+                      }`}
+                      title="Risk score 0–100 (ports + CVEs + findings)"
+                    >
+                      {r.risk}
+                    </span>
+                  )}
+                </td>
                 <td className="px-3 py-2 font-mono">
                   {r.subdomain}
                   {r.title && <div className="mt-0.5 text-[10px] text-muted-dim">{r.title}</div>}

@@ -22,6 +22,7 @@ from .runners import (
     nikto,
     nmap,
     nuclei,
+    origin,
     subfinder,
     testssl,
     wafw00f,
@@ -108,6 +109,11 @@ class Pipeline:
             self.db.activity(self.target_id, "Recon scan failed", f"{self.scan['input']}: {str(e)[:300]}")
             return
 
+        try:
+            self._score_hosts()
+        except Exception:
+            log.exception("risk scoring failed for scan %s", self.scan_id)
+
         live = sum(1 for h in self.hosts.values() if h.get("status") == "Live")
         summary = (f"{self.scan['input']}: {len(self.subs)} subdomains, {live} live hosts, "
                    f"{self.findings_new} new findings")
@@ -159,6 +165,16 @@ class Pipeline:
             self._upsert_hosts({value: {"status": "Filtered"}})
         cdn = sum(1 for p in probes.values() if p["is_cdn"])
         self.stage("httpx", "done", live=len(probes), cdn=cdn, **({"warning": warning} if warning else {}))
+
+        # e0: origin discovery — if the site is CDN-fronted, look for the real
+        # server leaking through non-proxied records (mail, ftp, dev, …).
+        # Skipped in enrich mode to keep bulk runs fast.
+        if kind == "domain" and self.mode != "enrich":
+            if cdn > 0:
+                self.stage("origin", "running")
+                self._discover_origin(value, probes)
+            else:
+                self.stage("origin", "skipped", detail="not behind a CDN")
 
         # c2 + c3: whatweb (deeper tech) + wafw00f (WAF). Passive tier: light,
         # runs on any input. whatweb output is merged into probe tech so the
@@ -274,6 +290,63 @@ class Pipeline:
             self._run_nikto(inscope)
         else:
             self.stage("nikto", "skipped", detail="disabled (set ENABLE_NIKTO=true)")
+
+    # -- origin discovery + risk scoring -------------------------------------
+    def _discover_origin(self, domain: str, probes: dict[str, dict]) -> None:
+        try:
+            candidates = origin.run(domain, self.workdir)
+        except Exception as e:
+            self.stage("origin", "done", found=0, error=str(e)[:150])
+            return
+        if not candidates:
+            self.stage("origin", "done", found=0)
+            return
+        rows = [{
+            "target_id": self.target_id, "host_id": None, "subdomain_id": None, "scan_id": self.scan_id,
+            "title": f"Possible origin IP {ip} (via {via})"[:300], "type": "origin-candidate",
+            "severity": "Low", "status": "New", "affected_url": via,
+            "evidence": (f"{via} resolves to {ip}, which is public and not in a CDN range — a likely origin "
+                         f"behind the CDN. Verify: it may be a third-party mail/hosting provider."),
+            "remediation": "If this is the origin, firewall it to accept traffic only from the CDN.",
+            "found_by": "recon-worker", "source": "origin", "tags": ["origin", "cdn-bypass"],
+            "fingerprint": f"origin:{self.target_id}:{ip}",
+        } for ip, via in candidates.items()]
+        n = self._save_findings(rows)
+        for p in probes.values():
+            if p["is_cdn"]:
+                ip0 = self._host_ip_for(p)
+                if ip0:
+                    self._upsert_hosts({ip0: {"origin_ips": sorted(candidates)}})
+        self.stage("origin", "done", found=len(candidates), new_findings=n, ips=list(candidates)[:10])
+
+    def _score_hosts(self) -> None:
+        """Set a 0-100 risk score on each host this scan touched."""
+        host_ids = {h["id"]: ip for ip, h in self.hosts.items() if h.get("scan_id") == self.scan_id}
+        if not host_ids:
+            return
+        tally: dict[str, dict[str, int]] = {hid: {"Critical": 0, "High": 0, "Medium": 0, "Low": 0} for hid in host_ids}
+        cve_hosts: set[str] = set()
+        try:
+            findings = self.db.select("findings", {"target_id": f"eq.{self.target_id}"}, "host_id,severity,cve_id")
+        except Exception:
+            findings = []
+        for f in findings:
+            hid = f.get("host_id")
+            if hid in tally:
+                sev = f.get("severity") or "Info"
+                if sev in tally[hid]:
+                    tally[hid][sev] += 1
+                if f.get("cve_id"):
+                    cve_hosts.add(hid)
+        for hid, ip in host_ids.items():
+            c = tally[hid]
+            score = c["Critical"] * 30 + c["High"] * 18 + c["Medium"] * 8 + c["Low"] * 3
+            score += min(len(self.hosts[ip].get("ports") or []) * 3, 18)
+            if hid in cve_hosts:
+                score += 8
+            if self.hosts[ip].get("is_cdn"):
+                score = max(0, score - 5)  # edge, less actionable
+            self._upsert_hosts({ip: {"risk_score": min(100, score)}})
 
     # -- DB writes -----------------------------------------------------------
     def _load_existing(self) -> None:

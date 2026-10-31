@@ -28,6 +28,25 @@ def normalize_domain(value: str) -> str | None:
     return value
 
 
+# Cloudflare's published IPv4 ranges (https://www.cloudflare.com/ips/).
+_CLOUDFLARE_NETS = [
+    ipaddress.ip_network(c) for c in (
+        "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+        "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
+        "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+        "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+    )
+]
+
+
+def is_cloudflare_ip(value: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(value.strip())
+    except ValueError:
+        return False
+    return any(ip.version == net.version and ip in net for net in _CLOUDFLARE_NETS)
+
+
 def normalize_public_ip(value: str) -> str | None:
     """Return the canonical form of a globally routable IP, or None.
 

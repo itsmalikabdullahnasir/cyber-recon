@@ -4,7 +4,7 @@ import type { Scan } from "@/lib/types";
 
 // Ordered pipeline stages, with short labels for the progress chips.
 export const STAGE_ORDER = [
-  "subfinder", "dnsx", "httpx", "fingerprint", "cve",
+  "subfinder", "dnsx", "httpx", "fingerprint", "origin", "cve",
   "nmap", "testssl", "dirs", "nuclei", "nikto",
 ];
 
@@ -13,6 +13,7 @@ export const STAGE_LABELS: Record<string, string> = {
   dnsx: "DNS resolve",
   httpx: "HTTP probe",
   fingerprint: "Fingerprint",
+  origin: "Origin IP",
   cve: "CVE match",
   nmap: "Port scan",
   testssl: "TLS audit",

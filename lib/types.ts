@@ -51,6 +51,8 @@ export interface Host {
   asn: string | null;
   tech: string[] | null;
   ports: PortInfo[] | null;
+  risk_score: number | null;
+  origin_ips: string[] | null;
 }
 
 export interface Finding {

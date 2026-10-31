@@ -304,6 +304,7 @@ def test_full_pipeline_respects_scope_and_cdn(fake_tools):
     assert "https://other.example.com" not in fake_tools["nuclei"]
     host = next(h for h in db.tables["hosts"] if h["ip"] == "93.184.216.34")
     assert [p["port"] for p in host["ports"]] == [22, 80]
+    assert host.get("risk_score") is not None and host["risk_score"] > 0  # scored from CVEs + ports
     cves = {f["cve_id"] for f in db.tables["findings"] if f["source"] == "cve-local"}
     assert cves == {"CVE-2021-23017", "CVE-2020-15778"}
     assert any(f["source"] == "nuclei" for f in db.tables["findings"])
