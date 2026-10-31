@@ -56,6 +56,7 @@ function scanDuration(scan: Scan): string | null {
 
 export function ScanRow({ scan }: { scan: Scan }) {
   const [busy, setBusy] = useState(false);
+  const [openStage, setOpenStage] = useState<string | null>(null);
 
   async function updateScan(values: Record<string, unknown>, failMsg: string) {
     setBusy(true);
@@ -144,19 +145,30 @@ export function ScanRow({ scan }: { scan: Scan }) {
           const st = stages[key];
           if (!st) return null;
           const count = stageCount(st);
+          const active = openStage === key;
           return (
-            <span
+            <button
               key={key}
-              title={typeof st.detail === "string" ? st.detail : st.status}
-              className="flex items-center gap-1 rounded-md border border-white/5 bg-white/[0.02] px-1.5 py-0.5 text-[10px]"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpenStage(active ? null : key);
+              }}
+              title="Click for stage details"
+              className={`flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] transition-colors ${
+                active ? "border-accent/40 bg-accent/10" : "border-white/5 bg-white/[0.02] hover:border-white/15"
+              }`}
             >
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${STATUS_DOT[st.status] ?? "bg-zinc-600"}`} />
               {STAGE_LABELS[key] ?? key}
               {count !== undefined && <span className="text-muted-dim">{count}</span>}
-            </span>
+            </button>
           );
         })}
       </div>
+
+      {openStage && stages[openStage] && (
+        <StageDetail name={openStage} stage={stages[openStage]} onClose={() => setOpenStage(null)} />
+      )}
       {scan.error && (
         <p className={`mt-2 text-[11px] ${cancelled ? "text-muted-dim" : "text-danger"}`}>{scan.error}</p>
       )}
@@ -186,4 +198,58 @@ export function ScanRow({ scan }: { scan: Scan }) {
       </div>
     </div>
   );
+}
+
+// Detail card shown when a stage chip is clicked — lists everything the worker
+// recorded for that stage (counts, skips, errors, detail text).
+function StageDetail({
+  name,
+  stage,
+  onClose,
+}: {
+  name: string;
+  stage: Record<string, unknown>;
+  onClose: () => void;
+}) {
+  const label = STAGE_LABELS[name] ?? name;
+  const status = String(stage.status ?? "");
+  const at = typeof stage.at === "string" ? new Date(stage.at).toLocaleString() : null;
+  const entries = Object.entries(stage).filter(([k]) => k !== "status" && k !== "at");
+
+  return (
+    <div className="mt-2 rounded-lg border border-accent/20 bg-accent/[0.04] p-3 text-[11px]">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 font-semibold">
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${STATUS_DOT[status] ?? "bg-zinc-600"}`} />
+          {label}
+          <span className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-dim">
+            {status}
+          </span>
+        </span>
+        <button onClick={onClose} className="text-muted-dim hover:text-foreground" title="Close">
+          ✕
+        </button>
+      </div>
+      {at && <p className="mb-1 text-[10px] text-muted-dim">updated {at}</p>}
+      {entries.length === 0 ? (
+        <p className="text-muted-dim">No extra details recorded for this stage.</p>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {entries.map(([k, v]) => (
+            <div key={k} className="flex gap-2">
+              <span className="w-28 shrink-0 text-muted-dim">{k.replace(/_/g, " ")}</span>
+              <span className="min-w-0 flex-1 break-words">{formatStageValue(v)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatStageValue(v: unknown): string {
+  if (Array.isArray(v)) return v.length ? v.map((x) => String(x)).join(", ") : "none";
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
 }

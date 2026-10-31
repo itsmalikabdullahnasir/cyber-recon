@@ -25,6 +25,15 @@
 	handle /health {
 		reverse_proxy 127.0.0.1:8000
 	}
+	# Read-only endpoints the dashboard needs (both still require the worker
+	# secret header, which the worker itself checks).
+	@reads {
+		method GET
+		path /modules /queue
+	}
+	handle @reads {
+		reverse_proxy 127.0.0.1:8000
+	}
 	handle {
 		respond 404
 	}
