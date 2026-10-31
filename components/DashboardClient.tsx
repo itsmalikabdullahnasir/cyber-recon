@@ -156,6 +156,17 @@ export function DashboardClient({
     return buckets;
   }, [scans]);
 
+  const filteredScans = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return scans;
+    return scans.filter((scan) =>
+      [scan.input, scan.mode, scan.status, scan.requested_by_email ?? ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [scans, search]);
+
   return (
     <div className="flex flex-col gap-6">
       {/* Hero */}
@@ -222,18 +233,27 @@ export function DashboardClient({
         <div className="card p-5">
           <div className="mb-3 flex items-center justify-between">
             <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-dim">
-              Live scan feed
+              Recent scans
               {activeScans.length > 0 && <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400 text-amber-400" />}
             </p>
-            <Link href="/console" className="text-[10px] text-accent hover:text-accent-dim">
-              Open console →
-            </Link>
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] text-muted-dim">{filteredScans.length} shown</span>
+              <Link href="/console" className="text-[10px] text-accent hover:text-accent-dim">
+                Open console →
+              </Link>
+            </div>
           </div>
-          <div className="grid gap-2 lg:grid-cols-2">
-            {scans.slice(0, 6).map((s) => (
+          {filteredScans.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-muted-dim">
+              No scans match &quot;{search}&quot;.
+            </p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+            {filteredScans.slice(0, 12).map((s) => (
               <ScanRow key={s.id} scan={s} />
             ))}
-          </div>
+            </div>
+          )}
         </div>
       )}
 

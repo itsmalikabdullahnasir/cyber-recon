@@ -3,6 +3,16 @@ import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
+function databaseError(error: { code?: string; message?: string }) {
+  if (error.code === "42P01" || error.code === "PGRST205" || error.message?.includes("pipeline_profiles")) {
+    return NextResponse.json(
+      { error: "Pipeline storage is not initialized. Apply supabase/migrations/20261031000200_pipelines.sql in Supabase SQL Editor." },
+      { status: 503 },
+    );
+  }
+  return NextResponse.json({ error: error.message ?? "Database request failed" }, { status: 500 });
+}
+
 // GET /api/pipelines -> list the user's saved custom pipelines.
 export async function GET() {
   const supabase = await createClient();
@@ -15,7 +25,7 @@ export async function GET() {
     .from("pipeline_profiles")
     .select("*")
     .order("created_at", { ascending: false });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return databaseError(error);
   return NextResponse.json({ profiles: data ?? [] });
 }
 
@@ -44,6 +54,6 @@ export async function POST(request: Request) {
     .insert({ name, description: body.description ?? null, modules })
     .select("*")
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return databaseError(error);
   return NextResponse.json({ profile: data }, { status: 201 });
 }

@@ -132,7 +132,7 @@ export function ScanRow({ scan }: { scan: Scan }) {
   const currentLabel = scan.stage ? STAGE_LABELS[scan.stage] ?? scan.stage : null;
 
   return (
-    <div className={`rounded-xl border p-3 transition-colors ${running ? "border-amber-500/30 bg-amber-500/[0.04]" : "border-white/5 bg-surface"}`}>
+    <div className={`rounded-xl border p-4 transition-colors ${running ? "border-amber-500/30 bg-amber-500/[0.04]" : "border-white/5 bg-surface"}`}>
       {scan.status === "running" && currentLabel && (
         <div className="mb-2 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5">
           <svg className="h-3.5 w-3.5 animate-spin text-amber-400" viewBox="0 0 24 24" fill="none">
@@ -145,9 +145,9 @@ export function ScanRow({ scan }: { scan: Scan }) {
           )}
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
         <span
-          className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase ${
+          className={`rounded border px-2 py-1 text-[10px] font-semibold uppercase ${
             scan.mode === "full"
               ? "border-rose-500/20 bg-rose-500/10 text-rose-400"
               : "border-indigo-500/20 bg-indigo-500/10 text-indigo-400"
@@ -157,7 +157,7 @@ export function ScanRow({ scan }: { scan: Scan }) {
         </span>
         <span className="font-mono">{scan.input}</span>
         <span
-          className={`rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase ${
+          className={`rounded px-2 py-1 text-[10px] font-semibold uppercase ${
             displayStatus === "done"
               ? "text-emerald-400"
               : displayStatus === "stopped"
@@ -180,7 +180,7 @@ export function ScanRow({ scan }: { scan: Scan }) {
         </span>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className="mt-3 flex flex-wrap gap-2">
         {STAGE_ORDER.map((key) => {
           const st = stages[key];
           if (!st) return null;
@@ -194,7 +194,7 @@ export function ScanRow({ scan }: { scan: Scan }) {
                 setOpenStage(active ? null : key);
               }}
               title="Click for stage details"
-              className={`flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] transition-colors ${
+              className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors ${
                 active ? "border-accent/40 bg-accent/10" : "border-white/5 bg-white/[0.02] hover:border-white/15"
               }`}
             >

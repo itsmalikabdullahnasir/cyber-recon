@@ -19,7 +19,7 @@ export function SearchBar({
       </svg>
       <input
         type="text"
-        placeholder="Search targets, IPs, findings..."
+        placeholder="Search targets, scans, IPs, findings..."
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-lg border border-white/5 bg-surface py-2.5 pl-10 pr-9 text-sm text-foreground placeholder:text-muted-dim outline-none transition-all duration-200 focus:border-accent/30 focus:bg-surface-hover focus:shadow-[0_0_0_1px_rgba(168,85,247,0.1)] sm:w-80"

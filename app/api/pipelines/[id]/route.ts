@@ -3,6 +3,16 @@ import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
+function databaseError(error: { code?: string; message?: string }) {
+  if (error.code === "42P01" || error.code === "PGRST205" || error.message?.includes("pipeline_profiles")) {
+    return NextResponse.json(
+      { error: "Pipeline storage is not initialized. Apply supabase/migrations/20261031000200_pipelines.sql in Supabase SQL Editor." },
+      { status: 503 },
+    );
+  }
+  return NextResponse.json({ error: error.message ?? "Database request failed" }, { status: 500 });
+}
+
 // PATCH /api/pipelines/:id -> update name / description / modules.
 // (Next 16 passes route params as a Promise, hence `await params`.)
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -31,7 +41,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     .eq("id", id)
     .select("*")
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return databaseError(error);
   return NextResponse.json({ profile: data });
 }
 
@@ -45,6 +55,6 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   const { error } = await supabase.from("pipeline_profiles").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return databaseError(error);
   return NextResponse.json({ ok: true });
 }

@@ -39,7 +39,11 @@ export function PipelineBuilder() {
         throw new Error(d.detail ? `${d.error}: ${d.detail}` : d.error || `modules ${mRes.status}`);
       }
       setRegistry(await mRes.json());
-      if (pRes.ok) setSaved((await pRes.json()).profiles ?? []);
+      if (!pRes.ok) {
+        const d = await pRes.json().catch(() => ({}));
+        throw new Error(d.error || `pipelines ${pRes.status}`);
+      }
+      setSaved((await pRes.json()).profiles ?? []);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "failed to load the registry");
     } finally {
