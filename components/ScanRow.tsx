@@ -635,7 +635,20 @@ function StageResults({ name, data }: { name: string; data: ScanDetails }) {
   // Port scan — ports plus what each one is for (443 → HTTPS, etc.).
   if (name === "nmap") {
     const hosts = data.hosts.filter((h) => (h.ports?.length ?? 0) > 0 || h.open_ports);
-    if (!hosts.length) return <StageEmpty text="No open ports recorded." />;
+    if (!hosts.length) {
+      // Explain the intentional CDN skip rather than showing a bare "empty".
+      const cdnHosts = data.hosts.filter((h) => h.is_cdn);
+      if (cdnHosts.length) {
+        return (
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.06] p-2.5 text-[10px] leading-relaxed text-amber-200/85">
+            Port scan skipped — {cdnHosts[0].cdn_name ?? "CDN"} detected on {cdnHosts.length} host
+            {cdnHosts.length > 1 ? "s" : ""} and no origin IP found. Scanning the CDN edge would only probe the CDN,
+            not the target’s real server.
+          </div>
+        );
+      }
+      return <StageEmpty text="No open ports recorded." />;
+    }
     return (
       <div className="flex flex-col gap-2">
         {hosts.map((h) => (

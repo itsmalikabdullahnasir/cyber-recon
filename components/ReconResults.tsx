@@ -625,7 +625,24 @@ function HostCardModal({ row, onClose }: { row: Row; onClose: () => void }) {
 
           <Section title={`Open ports (${row.ports.length})`}>
             {row.ports.length === 0 ? (
-              <p className="text-xs text-muted-dim">—</p>
+              row.cloudflare || row.cdn ? (
+                <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.06] p-3 text-[11px] leading-relaxed">
+                  <p className="font-semibold text-amber-200/90">
+                    Port scan skipped — {row.cdn ?? "CDN"} detected
+                    {(row.host?.origin_ips?.length ?? 0) === 0 ? " and no origin IP found" : ""}.
+                  </p>
+                  <p className="mt-1 text-amber-200/70">
+                    The scanner only sees the CDN edge IP, so a port scan would probe {row.cloudflare ? "Cloudflare" : "the CDN"},
+                    not the target’s real server. Ports and service detection are intentionally left out for this host.
+                  </p>
+                  <p className="mt-1 text-amber-200/55">
+                    A browser extension like Wappalyzer may list more tech here — it reads the page your browser already
+                    rendered (after the CDN challenge), not the origin the server-side scanner reaches.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-dim">—</p>
+              )
             ) : (
               <div className="grid gap-1.5 sm:grid-cols-2">
                 {row.ports.map((p) => (
