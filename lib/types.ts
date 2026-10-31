@@ -141,7 +141,7 @@ export interface Scan {
   id: string;
   target_id: string;
   input: string;
-  mode: "passive" | "full";
+  mode: "passive" | "full" | "enrich";
   status: ScanStatus;
   stage: string | null;
   stages: Record<string, { status: string; at: string; [k: string]: unknown }>;
@@ -150,6 +150,66 @@ export interface Scan {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  // Pipeline Builder (both nullable; a scan with no pipeline runs the fixed sequence).
+  profile_id?: string | null;
+  pipeline?: PipelineModule[] | null;
+}
+
+// ---- Pipeline Builder -----------------------------------------------------
+
+// One scanning module as described by the worker's registry (GET /modules).
+export interface ModuleDef {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  tier: "passive" | "active";
+  tools: string[];
+  tools_any: boolean;
+  dependencies: string[];
+  optional_dependencies: string[];
+  inputs: string[];
+  outputs: string[];
+  enabled_by_default: boolean;
+  parallel_safe: boolean;
+  timeout_setting: string | null;
+  enable_setting: string | null;
+  installed: boolean;       // the tool is present & executable on the VM
+  enabled_on_vm: boolean;   // the VM's ENABLE_* flag for it is on
+  timeout: number | null;
+}
+
+export interface BuiltinProfile {
+  name: string;
+  description: string;
+  modules: string[];
+  builtin: boolean;
+}
+
+// The full payload from GET /modules (proxied by /api/modules).
+export interface ModuleRegistry {
+  categories: string[];
+  modules: ModuleDef[];
+  profiles: Record<string, BuiltinProfile>;
+}
+
+// One module as placed in a (custom) pipeline. Array order = execution order.
+export interface PipelineModule {
+  id: string;
+  enabled: boolean;
+  config?: Record<string, unknown>;
+}
+
+// A saved custom pipeline (public.pipeline_profiles).
+export interface PipelineProfile {
+  id: string;
+  name: string;
+  description: string | null;
+  modules: PipelineModule[];
+  is_builtin: boolean;
+  owner: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Notification {
