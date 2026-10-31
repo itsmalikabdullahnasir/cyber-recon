@@ -36,7 +36,6 @@ export function ConsoleClient({
   const [input, setInput] = useState("");
   const [bulk, setBulk] = useState(false);
   const [mode, setMode] = useState<Mode>("passive");
-  const [authorized, setAuthorized] = useState(false);
   const [pipelineRegistry, setPipelineRegistry] = useState<ModuleRegistry | null>(null);
   const [pipelineProfiles, setPipelineProfiles] = useState<PipelineProfile[]>([]);
   const [selectedPipeline, setSelectedPipeline] = useState("builtin:basic_passive");
@@ -225,7 +224,7 @@ export function ConsoleClient({
           mode,
           targets: batch,
           group_id: target,
-          authorize: authorized,
+          authorize: false,
           profile_id: selectedPipelineData?.profileId ?? null,
           pipeline: selectedPipelineData?.modules ?? null,
         }),
@@ -314,39 +313,6 @@ export function ConsoleClient({
     }
   }
 
-  async function scanAllInGroup() {
-    setNotice(null);
-    setBusy(true);
-    try {
-      // Everything scannable in this group: each resolving subdomain, plus
-      // bare hosts (IP-only rows from imports) that have no subdomain.
-      const names = new Set<string>();
-      for (const s of subs) names.add(s.name);
-      const subIps = new Set(subs.map((s) => s.ip).filter(Boolean));
-      for (const h of hosts) if (!subIps.has(h.ip)) names.add(h.ip);
-      const targets = [...names];
-      if (targets.length === 0) {
-        setNotice({ kind: "err", text: "Nothing to scan in this group yet — import or add hosts first." });
-        return;
-      }
-      const supabase = createClient();
-      const rows = targets.map((t) => ({
-        target_id: groupId, input: t, mode: "enrich", status: "queued", requested_by_email: userEmail,
-      }));
-      for (let i = 0; i < rows.length; i += 500) {
-        await supabase.from("scans").insert(rows.slice(i, i + 500));
-        setNotice({ kind: "ok", text: `Queueing… ${Math.min(i + 500, rows.length)} / ${rows.length}` });
-      }
-      await refreshPending(groupId);
-      await loadFor(groupId);
-      setNotice({ kind: "ok", text: `Queued ${rows.length} fast enrich scans. They run one at a time — leave it; you'll get a notification per host.` });
-    } catch (e) {
-      setNotice({ kind: "err", text: e instanceof Error ? e.message : "Could not queue scans" });
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function deleteGroup() {
     if (groupId === consoleTargetId || groupId === "__new__") return;
     const g = groupList.find((x) => x.id === groupId);
@@ -408,14 +374,6 @@ export function ConsoleClient({
   }
 
   const locked = pending > 0;
-  const scannableCount = useMemo(() => {
-    const names = new Set<string>();
-    for (const s of subs) names.add(s.name);
-    const subIps = new Set(subs.map((s) => s.ip).filter(Boolean));
-    for (const h of hosts) if (!subIps.has(h.ip)) names.add(h.ip);
-    return names.size;
-  }, [subs, hosts]);
-
   const activeScan = scans.find((s) => s.status === "queued" || s.status === "running");
   const selectableGroups = groupList.filter((g) => g.id !== consoleTargetId);
   const assignTargets = groupList.filter((g) => !g.is_console && g.id !== groupId);
@@ -537,7 +495,7 @@ export function ConsoleClient({
           </label>
           <button
             onClick={launch}
-            disabled={busy || locked || parsed.length === 0 || (mode === "full" && !authorized)}
+            disabled={busy || locked || parsed.length === 0}
             className="btn btn-accent"
           >
             {busy ? "Working…" : `Run ${Math.min(parsed.length, 50) || ""} scan${Math.min(parsed.length, 50) === 1 ? "" : "s"}`}
@@ -551,11 +509,6 @@ export function ConsoleClient({
                 ⬇ Import {importable.length.toLocaleString()} (no scan)
               </button>
             </>
-          )}
-          {scannableCount > 0 && (
-            <button onClick={scanAllInGroup} disabled={busy || locked} className="btn" title="Queue a passive scan for every host in this group">
-              ⚡ Scan all {scannableCount.toLocaleString()} in group
-            </button>
           )}
           {activeScan && (
             <span className="flex items-center gap-1.5 text-[11px] text-amber-400">
@@ -577,25 +530,9 @@ export function ConsoleClient({
           <div className="mt-2 flex flex-col gap-1.5 rounded-lg border border-white/5 bg-white/[0.02] p-3 text-[11px] text-muted">
             <p><span className="font-semibold text-indigo-300">Passive</span> — read-only recon: finds subdomains, resolves DNS, probes HTTP, fingerprints the tech stack, and matches known CVEs by version. Safe on anything.</p>
             <p><span className="font-semibold text-accent">Enrich</span> — a faster Passive for hosts you already have (used by bulk Import &amp; Scan). Skips subdomain discovery and just enriches each host: DNS + HTTP + tech + CVE. ~3s each instead of ~30s.</p>
-            <p><span className="font-semibold text-rose-300">Full</span> — uses the selected pipeline and may include active attacks such as nmap, TLS audit, directory brute-force, and nuclei. Requires the authorization checkbox.</p>
+            <p><span className="font-semibold text-rose-300">Full</span> — uses the selected pipeline and may include active modules such as nmap, TLS audit, directory brute-force, and nuclei. Active stages run only for targets in this group&apos;s authorized scope.</p>
           </div>
         </details>
-
-        {mode === "full" && (
-          <label className="mt-3 flex items-start gap-2 rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-[11px] text-rose-200">
-            <input
-              type="checkbox"
-              checked={authorized}
-              onChange={(e) => setAuthorized(e.target.checked)}
-              className="mt-0.5"
-            />
-            <span>
-              <span className="font-semibold">I&apos;m authorized to actively test the targets I enter.</span>{" "}
-              Full scans run real attacks (nmap, directory brute-force, nuclei). Tick this and it scans exactly what you type —
-              no allowlist setup needed. Only scan systems you have permission to test.
-            </span>
-          </label>
-        )}
 
         {parsed.length > 50 && (
           <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-[11px] text-amber-300">
@@ -615,7 +552,7 @@ export function ConsoleClient({
       <details className="group">
         <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] text-muted-dim hover:text-foreground">
           <span className="transition-transform group-open:rotate-90">▸</span>
-          Authorized scope (optional — auto-filled when you tick “I’m authorized”)
+          Authorized scope for active modules
         </summary>
         <div className="mt-2">
           <ScopeManager key={groupId} targetId={groupId} entries={scopeEntries} />

@@ -41,7 +41,7 @@ export function DashboardClient({
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [risk, setRisk] = useState<"All" | "Critical" | "High" | "Medium" | "Low">("All");
-  const [visible, setVisible] = useState(50);
+  const [visible, setVisible] = useState(20);
   const [findings, setFindings] = useState<Finding[]>(findingsInit);
   const [scans, setScans] = useState<Scan[]>(scansInit);
   const [toasts, setToasts] = useState<{ id: string; text: string; kind: "ok" | "err" }[]>([]);
@@ -249,7 +249,7 @@ export function DashboardClient({
             </p>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
-            {filteredScans.slice(0, 12).map((s) => (
+            {filteredScans.slice(0, 20).map((s) => (
               <ScanRow key={s.id} scan={s} />
             ))}
             </div>
@@ -300,7 +300,7 @@ export function DashboardClient({
               </div>
               {filtered.length > visible && (
                 <button
-                  onClick={() => setVisible((v) => v + 50)}
+                  onClick={() => setVisible((v) => v + 20)}
                   className="mx-auto mt-1 rounded-lg border border-white/10 px-4 py-1.5 text-xs text-muted transition-colors hover:text-foreground"
                 >
                   Load more ({filtered.length - visible} more)

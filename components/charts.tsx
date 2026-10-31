@@ -65,7 +65,9 @@ export function Donut({
                 strokeDasharray={`${draw} ${c - draw}`}
                 strokeDashoffset={-offset}
                 style={{ transition: "stroke-dasharray .6s ease", filter: `drop-shadow(0 0 5px ${d.color}66)` }}
-              />
+              >
+                <title>{`${d.label}: ${d.value}`}</title>
+              </circle>
             );
             offset += len;
             return seg;
@@ -128,8 +130,15 @@ export function AreaChart({
         />
       )}
       {last && (
-        <circle cx={last[0]} cy={last[1]} r="2.2" fill={color} vectorEffect="non-scaling-stroke" style={{ filter: `drop-shadow(0 0 4px ${color})` }} />
+        <circle cx={last[0]} cy={last[1]} r="2.2" fill={color} vectorEffect="non-scaling-stroke" style={{ filter: `drop-shadow(0 0 4px ${color})` }}>
+          <title>{`Latest: ${points[points.length - 1] ?? 0}`}</title>
+        </circle>
       )}
+      {coords.map((point, index) => (
+        <circle key={index} cx={point[0]} cy={point[1]} r="4" fill="transparent" className="cursor-help">
+          <title>{`Day ${index + 1}: ${points[index]}`}</title>
+        </circle>
+      ))}
     </svg>
   );
 }
@@ -157,7 +166,9 @@ export function BarList({
                 boxShadow: `0 0 8px ${d.color}66`,
                 transition: "width 0.6s ease",
               }}
-            />
+            >
+              <title>{`${d.label}: ${d.value}`}</title>
+            </div>
           </div>
           <span className="w-6 shrink-0 text-right font-mono tabular-nums">{d.value}</span>
         </div>
