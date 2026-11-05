@@ -27,47 +27,35 @@ export default async function DashboardPage() {
     lowCountResult,
     infoCountResult,
     runningScanResult,
+    hostsResult,
+    findingsResult,
+    activitiesResult,
+    scansResult,
   ] = await Promise.all([
-      supabase
+    supabase
     .from("targets")
     .select("*")
     .order("created_at", { ascending: false })
     .range(0, 199),
-      supabase.from("targets").select("id", { count: "exact", head: true }).eq("is_console", false),
-      supabase.from("hosts").select("id", { count: "exact", head: true }),
-      supabase.from("findings").select("id", { count: "exact", head: true }),
-      supabase.from("hosts").select("id", { count: "exact", head: true }).eq("status", "Live"),
-      supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Critical"),
-      supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "High"),
-      supabase.from("scans").select("id", { count: "exact", head: true }),
-      supabase.from("scans").select("id", { count: "exact", head: true }).in("status", ["queued", "running"]),
-      supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Critical"),
-      supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "High"),
-      supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Medium"),
-      supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Low"),
-      supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Info"),
-      supabase.from("scans").select("*").eq("status", "running").order("started_at", { ascending: false }).limit(1).maybeSingle(),
-    ]);
-
-  const { data: hosts } = await supabase.from("hosts").select("*").range(0, 199);
-
-  const { data: findings } = await supabase
-    .from("findings")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .range(0, 199);
-
-  const { data: activities } = await supabase
-    .from("activities")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(20);
-
-  const { data: scans } = await supabase
-    .from("scans")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .range(0, 39);
+    supabase.from("targets").select("id", { count: "exact", head: true }).eq("is_console", false),
+    supabase.from("hosts").select("id", { count: "exact", head: true }),
+    supabase.from("findings").select("id", { count: "exact", head: true }),
+    supabase.from("hosts").select("id", { count: "exact", head: true }).eq("status", "Live"),
+    supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Critical"),
+    supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "High"),
+    supabase.from("scans").select("id", { count: "exact", head: true }),
+    supabase.from("scans").select("id", { count: "exact", head: true }).in("status", ["queued", "running"]),
+    supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Critical"),
+    supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "High"),
+    supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Medium"),
+    supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Low"),
+    supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Info"),
+    supabase.from("scans").select("*").eq("status", "running").order("started_at", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("hosts").select("*").range(0, 199),
+    supabase.from("findings").select("*").order("created_at", { ascending: false }).range(0, 199),
+    supabase.from("activities").select("*").order("created_at", { ascending: false }).limit(20),
+    supabase.from("scans").select("*").order("created_at", { ascending: false }).range(0, 39),
+  ]);
 
   return (
     <>
@@ -75,10 +63,10 @@ export default async function DashboardPage() {
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 py-6 sm:px-6">
         <DashboardClient
           targets={targets ?? []}
-          hosts={hosts ?? []}
-          findings={findings ?? []}
-          activities={activities ?? []}
-          scans={scans ?? []}
+          hosts={hostsResult.data ?? []}
+          findings={findingsResult.data ?? []}
+          activities={activitiesResult.data ?? []}
+          scans={scansResult.data ?? []}
           totals={{
             targets: targetCountResult.count,
             hosts: hostCountResult.count,
