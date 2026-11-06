@@ -62,6 +62,20 @@ as $$
         limit 1
       ) s
     ),
+    'scan_series', coalesce((
+      select jsonb_agg(day_count order by day)
+      from (
+        select day::date,
+          (select count(*) from public.scans s
+           where s.created_at >= day
+             and s.created_at < day + interval '1 day')::integer as day_count
+        from generate_series(
+          current_date - interval '13 days',
+          current_date,
+          interval '1 day'
+        ) as days(day)
+      ) daily
+    ), '[]'::jsonb),
     'totals', jsonb_build_object(
       'targets', (select count(*) from public.targets where is_console = false),
       'hosts', (select count(*) from public.hosts),

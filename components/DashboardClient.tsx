@@ -77,6 +77,7 @@ export function DashboardClient({
   totals,
   countErrors: initialCountErrors,
   runningScanError: runningScanErrorInit,
+  scanSeries: scanSeriesInit,
   userName,
 }: {
   targets: Target[];
@@ -97,6 +98,7 @@ export function DashboardClient({
   };
   countErrors: Record<MetricKey, string | null> & { severity: Record<string, string | null> };
   runningScanError: string | null;
+  scanSeries?: number[];
   userName: string;
 }) {
   // Hide the hidden Scan Console bucket (works even before migration 2 adds the column).
@@ -116,6 +118,7 @@ export function DashboardClient({
   const [countLoading, setCountLoading] = useState(false);
   const [runningScanError, setRunningScanError] = useState(runningScanErrorInit);
   const [runningScanLoading, setRunningScanLoading] = useState(false);
+  const [scanSeriesOverride, setScanSeriesOverride] = useState<number[] | null>(scanSeriesInit ?? null);
   const [toasts, setToasts] = useState<{ id: string; text: string; kind: "ok" | "err" }[]>([]);
   const scanStatus = useRef<Map<string, string>>(new Map(scansInit.map((s) => [s.id, s.status])));
   const router = useRouter();
@@ -207,9 +210,11 @@ export function DashboardClient({
       const dashboard = data as {
         scans: Scan[];
         running_scan: Scan | null;
+        scan_series: number[];
         totals: Parameters<typeof applyDashboardTotals>[0];
       };
       setScans(dashboard.scans);
+      setScanSeriesOverride(dashboard.scan_series);
       setRunningScan(dashboard.running_scan);
       setRunningScanError(null);
       applyDashboardTotals(dashboard.totals);
@@ -327,7 +332,7 @@ export function DashboardClient({
   }, [counts]);
 
   // Scan activity over the last 14 days.
-  const scanSeries = useMemo(() => {
+  const derivedScanSeries = useMemo(() => {
     const days = 14;
     const buckets = new Array(days).fill(0);
     const now = new Date();
@@ -338,6 +343,7 @@ export function DashboardClient({
     }
     return buckets;
   }, [scans]);
+  const scanSeries = scanSeriesOverride ?? derivedScanSeries;
 
   const scanRiskById = useMemo(() => {
     const m = new Map<string, number>();

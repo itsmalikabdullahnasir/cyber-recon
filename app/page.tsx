@@ -31,6 +31,7 @@ export default async function DashboardPage() {
     findingsResult,
     activitiesResult,
     scansResult,
+    scanActivityResult,
   ] = await Promise.all([
     supabase.from("targets").select("*").order("created_at", { ascending: false }).range(0, 199),
     supabase.from("targets").select("id", { count: "exact", head: true }).eq("is_console", false),
@@ -51,7 +52,19 @@ export default async function DashboardPage() {
     supabase.from("findings").select("*").order("created_at", { ascending: false }).range(0, 199),
     supabase.from("activities").select("*").order("created_at", { ascending: false }).limit(20),
     supabase.from("scans").select("*").order("created_at", { ascending: false }).range(0, 39),
+    // Server-side time bounds keep this fallback query small when the RPC
+    // migration has not been applied yet.
+    // eslint-disable-next-line react-hooks/purity
+    supabase.from("scans").select("created_at").gte("created_at", new Date(Date.now() - 13 * 86400000).toISOString()),
   ]);
+
+  const scanSeries = new Array(14).fill(0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (const scan of scanActivityResult.data ?? []) {
+    const age = Math.floor((today.getTime() - new Date(scan.created_at).setHours(0, 0, 0, 0)) / 86400000);
+    if (age >= 0 && age < 14) scanSeries[13 - age]++;
+  }
 
   return (
     <>
@@ -99,6 +112,7 @@ export default async function DashboardPage() {
           }}
           runningScan={runningScanResult.data}
           runningScanError={runningScanResult.error?.message ?? null}
+          scanSeries={scanSeries}
           userName={user.email ?? "operator"}
         />
       </div>
