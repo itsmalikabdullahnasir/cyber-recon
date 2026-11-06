@@ -18,7 +18,7 @@ as $$
     'hosts', coalesce((
       select jsonb_agg(to_jsonb(h))
       from (
-        select id, target_id, ip, status, exploitability, hostname, scan_id, risk_score
+        select id, target_id, ip, status, exploitability, hostname, scan_id
         from public.hosts
         limit 200
       ) h
