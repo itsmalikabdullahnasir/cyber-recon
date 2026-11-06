@@ -63,18 +63,18 @@ as $$
       ) s
     ),
     'scan_series', coalesce((
-      select jsonb_agg(day_count order by day)
+      select jsonb_agg(hour_count order by hour)
       from (
-        select day::date,
+        select hour,
           (select count(*) from public.scans s
-           where s.created_at >= day
-             and s.created_at < day + interval '1 day')::integer as day_count
+           where s.created_at >= hour
+             and s.created_at < hour + interval '1 hour')::integer as hour_count
         from generate_series(
-          current_date - interval '13 days',
-          current_date,
-          interval '1 day'
-        ) as days(day)
-      ) daily
+          date_trunc('hour', now()) - interval '23 hours',
+          date_trunc('hour', now()),
+          interval '1 hour'
+        ) as hours(hour)
+      ) hourly
     ), '[]'::jsonb),
     'totals', jsonb_build_object(
       'targets', (select count(*) from public.targets where is_console = false),

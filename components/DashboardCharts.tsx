@@ -30,12 +30,12 @@ export function DashboardCharts({
 
       <div className="card card-hover p-5">
         <div className="mb-3 flex items-center justify-between">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Scan activity · 14d</p>
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Scan activity · 24h</p>
           <span className="text-[10px] text-muted-dim">{scanCount} total</span>
         </div>
         <AreaChart points={scanSeries} height={120} color="#a855f7" />
         <p className="mt-2 text-[10px] text-muted-dim">
-          {scanSeries[scanSeries.length - 1]} today · peak {Math.max(...scanSeries)}/day
+          {scanSeries[scanSeries.length - 1]} last hour · peak {Math.max(...scanSeries)}/hour
         </p>
       </div>
 

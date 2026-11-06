@@ -331,15 +331,14 @@ export function DashboardClient({
     return Math.min(100, Math.round((score / (counts.findings * 10)) * 100));
   }, [counts]);
 
-  // Scan activity over the last 14 days.
+  // Scan activity over the last 24 hours.
   const derivedScanSeries = useMemo(() => {
-    const days = 14;
-    const buckets = new Array(days).fill(0);
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
+    const hours = 24;
+    const buckets = new Array(hours).fill(0);
+    const now = scans.reduce((latest, scan) => Math.max(latest, new Date(scan.created_at).getTime()), 0);
     for (const s of scans) {
-      const d = Math.floor((now.getTime() - new Date(s.created_at).setHours(0, 0, 0, 0)) / 86400000);
-      if (d >= 0 && d < days) buckets[days - 1 - d]++;
+      const age = Math.floor((now - new Date(s.created_at).getTime()) / 3600000);
+      if (age >= 0 && age < hours) buckets[hours - 1 - age]++;
     }
     return buckets;
   }, [scans]);

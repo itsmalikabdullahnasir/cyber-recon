@@ -2,6 +2,27 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { DashboardClient } from "@/components/DashboardClient";
 import { TopNav } from "@/components/TopNav";
+import type { Activity, Finding, Host, Scan, Target } from "@/lib/types";
+
+type DashboardData = {
+  targets: Target[];
+  hosts: Host[];
+  findings: Finding[];
+  activities: Activity[];
+  scans: Scan[];
+  running_scan: Scan | null;
+  scan_series: number[];
+  totals: {
+    targets: number;
+    hosts: number;
+    live_hosts: number;
+    findings: number;
+    critical_findings: number;
+    scans: number;
+    active_scans: number;
+    severity: Record<string, number>;
+  };
+};
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -10,6 +31,44 @@ export default async function DashboardPage() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+
+  const { data: rpcData } = await supabase.rpc("get_dashboard_data");
+  if (rpcData) {
+    const dashboard = rpcData as DashboardData;
+    return (
+      <>
+        <TopNav userEmail={user.email ?? ""} />
+        <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 py-6 sm:px-6">
+          <DashboardClient
+            targets={dashboard.targets}
+            hosts={dashboard.hosts}
+            findings={dashboard.findings}
+            activities={dashboard.activities}
+            scans={dashboard.scans}
+            totals={{
+              targets: dashboard.totals.targets,
+              hosts: dashboard.totals.hosts,
+              liveHosts: dashboard.totals.live_hosts,
+              findings: dashboard.totals.findings,
+              criticalFindings: dashboard.totals.critical_findings,
+              scans: dashboard.totals.scans,
+              activeScans: dashboard.totals.active_scans,
+              severity: dashboard.totals.severity,
+            }}
+            countErrors={{
+              targets: null, hosts: null, liveHosts: null, findings: null,
+              criticalFindings: null, scans: null, activeScans: null,
+              severity: { Critical: null, High: null, Medium: null, Low: null, Info: null },
+            }}
+            runningScan={dashboard.running_scan}
+            runningScanError={null}
+            scanSeries={dashboard.scan_series}
+            userName={user.email ?? "operator"}
+          />
+        </div>
+      </>
+    );
+  }
 
   const [
     { data: targets },
@@ -55,15 +114,16 @@ export default async function DashboardPage() {
     // Server-side time bounds keep this fallback query small when the RPC
     // migration has not been applied yet.
     // eslint-disable-next-line react-hooks/purity
-    supabase.from("scans").select("created_at").gte("created_at", new Date(Date.now() - 13 * 86400000).toISOString()),
+    supabase.from("scans").select("created_at").gte("created_at", new Date(Date.now() - 23 * 3600000).toISOString()),
   ]);
 
-  const scanSeries = new Array(14).fill(0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const scanSeries = new Array(24).fill(0);
+  // The server-rendered fallback is only used when the RPC migration is absent.
+  // eslint-disable-next-line react-hooks/purity
+  const now = Date.now();
   for (const scan of scanActivityResult.data ?? []) {
-    const age = Math.floor((today.getTime() - new Date(scan.created_at).setHours(0, 0, 0, 0)) / 86400000);
-    if (age >= 0 && age < 14) scanSeries[13 - age]++;
+    const age = Math.floor((now - new Date(scan.created_at).getTime()) / 3600000);
+    if (age >= 0 && age < 24) scanSeries[23 - age]++;
   }
 
   return (
