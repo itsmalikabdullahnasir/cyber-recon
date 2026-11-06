@@ -81,6 +81,30 @@ body {
   to { transform: translate(-6vw, -4vw) scale(1); }
 }
 
+@media (max-width: 640px) {
+  .dotgrid__glow,
+  .dotgrid__ripple {
+    display: none;
+  }
+
+  .aurora::before,
+  .aurora::after {
+    animation: none;
+    filter: blur(80px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 .light {
   --color-background: #f8f7fc;
   --color-foreground: #1a1625;

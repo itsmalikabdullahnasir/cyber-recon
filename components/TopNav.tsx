@@ -2,10 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { NotificationBell } from "@/components/NotificationBell";
 import { ScanProgress } from "@/components/ScanProgress";
 import { ProfileMenu } from "@/components/ProfileMenu";
-import { WorkerStatus } from "@/components/WorkerStatus";
+import dynamic from "next/dynamic";
+
+const DeferredNotificationBell = dynamic(
+  () => import("@/components/NotificationBell").then((module) => module.NotificationBell),
+  { loading: () => null },
+);
+const DeferredWorkerStatus = dynamic(
+  () => import("@/components/WorkerStatus").then((module) => module.WorkerStatus),
+  { loading: () => null },
+);
 
 const LINKS = [
   { href: "/", label: "Dashboard", icon: "◆" },
@@ -53,8 +61,8 @@ export function TopNav({ userEmail }: { userEmail: string }) {
         {/* Right */}
         <div className="ml-auto flex items-center gap-2">
           <ScanProgress />
-          <WorkerStatus />
-          <NotificationBell userEmail={userEmail} />
+          <DeferredWorkerStatus />
+          <DeferredNotificationBell userEmail={userEmail} />
           <ProfileMenu userEmail={userEmail} />
         </div>
       </div>

@@ -6,13 +6,21 @@ import type { Target, Host, Finding, Activity, Scan } from "@/lib/types";
 import { TargetCard } from "@/components/TargetCard";
 import { SearchBar } from "@/components/SearchBar";
 import { FilterChips } from "@/components/FilterChips";
-import { RiskScoreGauge } from "@/components/RiskScoreGauge";
-import { Donut, AreaChart, BarList } from "@/components/charts";
-import { ScanRow } from "@/components/ScanRow";
 import { EncryptButton } from "@/components/EncryptButton";
 import { scanRiskScore } from "@/lib/risk";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { AreaChart } from "@/components/charts";
+import dynamic from "next/dynamic";
+
+const DashboardCharts = dynamic(
+  () => import("@/components/DashboardCharts").then((module) => module.DashboardCharts),
+  { loading: () => <div className="h-[184px] animate-pulse rounded-xl bg-surface" /> },
+);
+const DashboardScanRow = dynamic(
+  () => import("@/components/ScanRow").then((module) => module.ScanRow),
+  { loading: () => <div className="h-24 animate-pulse rounded-xl bg-surface" /> },
+);
 
 const SEVERITY_COLORS: Record<string, string> = {
   Critical: "#f43f5e",
@@ -114,6 +122,7 @@ export function DashboardClient({
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshPending = useRef(false);
   const retryingMetric = useRef<MetricKey | null>(null);
+  const runningScanRef = useRef(Boolean(runningScanInit));
 
   function pushToast(kind: "ok" | "err", text: string) {
     const id = Math.random().toString(36).slice(2);
@@ -121,46 +130,41 @@ export function DashboardClient({
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 6000);
   }
 
-  const refreshCounts = async () => {
-    setCountLoading(true);
-    const supabase = createClient();
-    const requests = await Promise.all([
-      supabase.from("targets").select("id", { count: "exact", head: true }).eq("is_console", false),
-      supabase.from("hosts").select("id", { count: "exact", head: true }),
-      supabase.from("hosts").select("id", { count: "exact", head: true }).eq("status", "Live"),
-      supabase.from("findings").select("id", { count: "exact", head: true }),
-      supabase.from("findings").select("id", { count: "exact", head: true }).in("severity", ["Critical", "High"]),
-      supabase.from("scans").select("id", { count: "exact", head: true }),
-      supabase.from("scans").select("id", { count: "exact", head: true }).in("status", ["queued", "running"]),
-      ...(["Critical", "High", "Medium", "Low", "Info"] as const).map((severity) =>
-        supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", severity),
-      ),
-    ]);
+  const applyDashboardTotals = (totals: {
+    targets: number;
+    hosts: number;
+    live_hosts: number;
+    findings: number;
+    critical_findings: number;
+    scans: number;
+    active_scans: number;
+    severity: Record<string, number>;
+  }) => {
     setCounts({
-      targets: requests[0].count,
-      hosts: requests[1].count,
-      liveHosts: requests[2].count,
-      findings: requests[3].count,
-      criticalFindings: requests[4].count,
-      scans: requests[5].count,
-      activeScans: requests[6].count,
+      targets: totals.targets,
+      hosts: totals.hosts,
+      liveHosts: totals.live_hosts,
+      findings: totals.findings,
+      criticalFindings: totals.critical_findings,
+      scans: totals.scans,
+      activeScans: totals.active_scans,
       severity: {
-        Critical: requests[7].count,
-        High: requests[8].count,
-        Medium: requests[9].count,
-        Low: requests[10].count,
-        Info: requests[11].count,
+        Critical: totals.severity.Critical ?? null,
+        High: totals.severity.High ?? null,
+        Medium: totals.severity.Medium ?? null,
+        Low: totals.severity.Low ?? null,
+        Info: totals.severity.Info ?? null,
       },
     });
     setCountErrors({
-      targets: requests[0].error?.message ?? null,
-      hosts: requests[1].error?.message ?? null,
-      liveHosts: requests[2].error?.message ?? null,
-      findings: requests[3].error?.message ?? null,
-      criticalFindings: requests[4].error?.message ?? null,
-      scans: requests[5].error?.message ?? null,
-      activeScans: requests[6].error?.message ?? null,
-      severity: Object.fromEntries(["Critical", "High", "Medium", "Low", "Info"].map((key, index) => [key, requests[index + 7].error?.message ?? null])),
+      targets: null,
+      hosts: null,
+      liveHosts: null,
+      findings: null,
+      criticalFindings: null,
+      scans: null,
+      activeScans: null,
+      severity: { Critical: null, High: null, Medium: null, Low: null, Info: null },
     });
     setCountLoading(false);
   };
@@ -185,6 +189,7 @@ export function DashboardClient({
   };
 
   const scheduleRefresh = () => {
+    if (document.visibilityState !== "visible") return;
     refreshPending.current = true;
     setRunningScanLoading(true);
     if (refreshTimer.current) return;
@@ -193,16 +198,28 @@ export function DashboardClient({
       if (!refreshPending.current) return;
       refreshPending.current = false;
       const supabase = createClient();
-      const [{ data }, runningResult] = await Promise.all([
-        supabase.from("scans").select("*").order("created_at", { ascending: false }).range(0, 39),
-        supabase.from("scans").select("*").eq("status", "running").order("started_at", { ascending: false }).limit(1).maybeSingle(),
-      ]);
-      if (data) setScans(data);
-      setRunningScan(runningResult.data);
-      setRunningScanError(runningResult.error?.message ?? null);
-      await refreshCounts();
+      const { data, error } = await supabase.rpc("get_dashboard_data");
+      if (error || !data) {
+        setRunningScanError(error?.message ?? "The database returned no dashboard data");
+        setRunningScanLoading(false);
+        return;
+      }
+      const dashboard = data as {
+        scans: Scan[];
+        running_scan: Scan | null;
+        totals: Parameters<typeof applyDashboardTotals>[0];
+      };
+      setScans(dashboard.scans);
+      setRunningScan(dashboard.running_scan);
+      setRunningScanError(null);
+      applyDashboardTotals(dashboard.totals);
+      setRunningScanLoading(false);
     }, 1500);
   };
+
+  useEffect(() => {
+    runningScanRef.current = Boolean(runningScan);
+  }, [runningScan]);
 
   // Live updates are coalesced so a busy worker queue cannot trigger a render
   // for every host/finding/scan row written to Supabase.
@@ -221,15 +238,21 @@ export function DashboardClient({
           );
         }
         scanStatus.current.set(row.id, row.status);
-        scheduleRefresh();
+        if (runningScanRef.current || row.status === "queued" || row.status === "running") {
+          scheduleRefresh();
+        }
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "findings" }, (payload) => {
-        const row = payload.new as Finding;
-        scheduleRefresh();
+        if (runningScanRef.current) scheduleRefresh();
       })
       .subscribe();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible" && runningScanRef.current) scheduleRefresh();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       supabase.removeChannel(channel);
     };
   }, [userName]);
@@ -399,32 +422,13 @@ export function DashboardClient({
       </div>
 
       {/* Charts */}
-      <div className="animate-fade-in grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <div className="card card-hover p-5">
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Findings by severity</p>
-          <div className="flex items-center gap-5">
-            <Donut data={severityData.filter((d) => d.value > 0)} centerValue={counts.findings ?? "—"} centerLabel="findings" />
-            <div className="flex-1">
-              <BarList data={severityData} />
-            </div>
-          </div>
-        </div>
-
-        <div className="card card-hover p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Scan activity · 14d</p>
-            <span className="text-[10px] text-muted-dim">{counts.scans} total</span>
-          </div>
-          <AreaChart points={scanSeries} height={120} color="#a855f7" />
-          <p className="mt-2 text-[10px] text-muted-dim">
-            {scanSeries[scanSeries.length - 1]} today · peak {Math.max(...scanSeries)}/day
-          </p>
-        </div>
-
-        <div className="card card-hover flex items-center justify-center p-5">
-          <RiskScoreGauge score={riskScore} label="risk score" />
-        </div>
-      </div>
+      <DashboardCharts
+        severityData={severityData}
+        findings={counts.findings}
+        scanSeries={scanSeries}
+        scanCount={counts.scans}
+        riskScore={riskScore}
+      />
 
       {/* Live scan feed */}
       {scans.length > 0 && (
@@ -463,7 +467,7 @@ export function DashboardClient({
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
             {filteredScans.slice(0, 20).map((s) => (
-              <ScanRow
+              <DashboardScanRow
                 key={s.id}
                 scan={s}
                 assignTargets={targets.map((target) => ({ id: target.id, name: target.name }))}
@@ -512,7 +516,7 @@ export function DashboardClient({
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 {filteredScans.slice(0, visibleScanResults).map((scan) => (
-                  <ScanRow
+                  <DashboardScanRow
                     key={`result-${scan.id}`}
                     scan={scan}
                     assignTargets={targets.map((target) => ({ id: target.id, name: target.name }))}
