@@ -126,6 +126,8 @@ export function DashboardClient({
   const refreshPending = useRef(false);
   const retryingMetric = useRef<MetricKey | null>(null);
   const runningScanRef = useRef(Boolean(runningScanInit));
+  const activeScansRef = useRef((totals.activeScans ?? 0) > 0);
+  const scheduleRefreshRef = useRef<() => void>(() => {});
 
   function pushToast(kind: "ok" | "err", text: string) {
     const id = Math.random().toString(36).slice(2);
@@ -159,6 +161,7 @@ export function DashboardClient({
         Info: totals.severity.Info ?? null,
       },
     });
+    activeScansRef.current = totals.active_scans > 0;
     setCountErrors({
       targets: null,
       hosts: null,
@@ -221,10 +224,24 @@ export function DashboardClient({
       setRunningScanLoading(false);
     }, 1500);
   };
+  useEffect(() => {
+    scheduleRefreshRef.current = scheduleRefresh;
+    // The ref keeps the polling callback current without recreating the timer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduleRefresh]);
 
   useEffect(() => {
     runningScanRef.current = Boolean(runningScan);
   }, [runningScan]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible" && activeScansRef.current) {
+        scheduleRefreshRef.current();
+      }
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Live updates are coalesced so a busy worker queue cannot trigger a render
   // for every host/finding/scan row written to Supabase.
@@ -393,7 +410,7 @@ export function DashboardClient({
               {(activeScans ?? 0) > 0 && (
                 <span className="ml-2 inline-flex items-center gap-1.5 text-amber-400">
                   <span className="pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
-                  {activeScans ?? "—"} scan{(activeScans ?? 0) > 1 ? "s" : ""} running
+                  {activeScans ?? "—"} active scan{(activeScans ?? 0) > 1 ? "s" : ""}
                 </span>
               )}
             </p>
