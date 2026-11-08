@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import type { ReactNode } from "react";
 import type { Scan, Host, Subdomain, Finding, Target } from "@/lib/types";
 import { COMMON_PORTS } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
@@ -133,35 +134,24 @@ export function ScanRow({
     };
   }, [openStage, details, scan.id]);
 
-  async function updateScan(values: Record<string, unknown>, failMsg: string) {
-    setBusy(true);
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.from("scans").update(values).eq("id", scan.id);
-      if (error) alert(`${failMsg}: ${error.message}`);
-    } catch (e) {
-      alert(`${failMsg}: ${e instanceof Error ? e.message : "unknown error"}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   // Stop this one scan. The worker re-reads the row status at each stage
   // boundary and aborts the scan in progress; a queued row simply never gets
   // claimed. Either way the record is kept (status failed, "cancelled by user").
-  const stop = () =>
-    updateScan(
-      { status: "failed", error: "cancelled by user", finished_at: new Date().toISOString() },
-      "Could not stop the scan",
-    );
+  const stop = async () => {
+    setBusy(true);
+    const { error } = await createClient().rpc("cancel_scan", { p_scan_id: scan.id });
+    if (error) alert(`Could not stop the scan: ${error.message}`);
+    setBusy(false);
+  };
 
   // Resume / re-run this exact scan: re-queue it and clear prior progress. The
   // worker's poller claims it again in order.
-  const rerun = () =>
-    updateScan(
-      { status: "queued", error: null, stage: null, stages: {}, started_at: null, finished_at: null },
-      "Could not re-queue the scan",
-    );
+  const rerun = async () => {
+    setBusy(true);
+    const { error } = await createClient().rpc("retry_scan", { p_scan_id: scan.id });
+    if (error) alert(`Could not re-queue the scan: ${error.message}`);
+    setBusy(false);
+  };
 
   const stages = scan.stages || {};
   const running = scan.status === "running";
@@ -459,12 +449,20 @@ function ScanDetailModal({ scan: initial, onClose }: { scan: Scan; onClose: () =
 
       <div className="max-h-[70vh] space-y-5 overflow-y-auto p-5">
         {details && (
-          <div className="grid grid-cols-3 gap-2">
-            <StatMini label="Hosts" value={details.hosts.length} />
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <StatMini label="Hosts" value={scan.hosts_discovered ?? details.hosts.length} />
             <StatMini label="Subdomains" value={details.subs.length} />
-            <StatMini label="Findings" value={details.finds.length} />
+            <StatMini label="Created" value={scan.findings_created ?? details.finds.length} />
+            <StatMini label="Updated" value={scan.findings_updated ?? 0} />
           </div>
         )}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <StatMini label="Duration" value={scan.duration_seconds ? `${Math.floor(scan.duration_seconds / 60)}m ${scan.duration_seconds % 60}s` : duration ?? "—"} />
+          <StatMini label="Retries" value={`${scan.retry_count ?? 0}/${scan.max_retries ?? 3}`} />
+          <StatMini label="Resolved" value={scan.findings_resolved ?? 0} />
+          <StatMini label="Priority" value={scan.priority ?? 0} />
+        </div>
+        {scan.error && <p className="rounded-lg border border-rose-500/20 bg-rose-500/5 p-3 text-xs text-rose-300">Error: {scan.error}</p>}
 
         {pipeline && (
           <section>
@@ -566,7 +564,7 @@ function ScanDetailModal({ scan: initial, onClose }: { scan: Scan; onClose: () =
   );
 }
 
-function StatMini({ label, value }: { label: string; value: number }) {
+function StatMini({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="rounded-lg border border-white/5 bg-background/40 px-3 py-2">
       <p className="text-lg font-bold text-foreground">{value}</p>

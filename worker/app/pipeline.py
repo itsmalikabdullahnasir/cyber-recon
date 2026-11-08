@@ -9,7 +9,7 @@ import hashlib
 import logging
 import re
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from . import cve_db
@@ -76,6 +76,7 @@ class Pipeline:
         self.subs: dict[str, dict] = {}
         self.hosts: dict[str, dict] = {}
         self.findings_new = 0
+        self.findings_updated = 0
 
     def _enabled(self, module_id: str) -> bool:
         """Return whether a selected pipeline includes a module."""
@@ -102,8 +103,19 @@ class Pipeline:
                 "last_stage_at": self.stages[name]["at"],
                 "total_stages": self.total_stages,
                 "completed_stages": completed,
+                "worker_heartbeat_at": self.stages[name]["at"],
             },
         )
+        try:
+            self.db.insert("scan_logs", {
+                "scan_id": self.scan_id,
+                "level": "error" if status == "failed" else "info",
+                "stage": name,
+                "message": f"Stage {name} {status}",
+                "metadata": info,
+            })
+        except Exception:
+            log.exception("scan log write failed for %s", self.scan_id)
 
     def _abort_if_cancelled(self) -> None:
         try:
@@ -126,6 +138,7 @@ class Pipeline:
                 "last_stage_at": started,
                 "total_stages": self.total_stages,
                 "completed_stages": 0,
+                "worker_heartbeat_at": started,
             },
         )
         self.db.notify(self.email, f"🛰️ Scan started — {self.scan['input']}",
@@ -143,7 +156,8 @@ class Pipeline:
             log.exception("scan %s failed", self.scan_id)
             self.db.update("scans", {"id": f"eq.{self.scan_id}"},
                            {"status": "failed", "error": str(e)[:1000], "finished_at": now_iso(), "stages": self.stages,
-                            "completed_stages": self._completed_stage_count()})
+                            "completed_stages": self._completed_stage_count(), "worker_heartbeat_at": now_iso(),
+                            "duration_seconds": max(0, int((datetime.fromisoformat(now_iso()) - datetime.fromisoformat(started)).total_seconds()))})
             self.db.notify(self.email, f"❌ Scan failed — {self.scan['input']}", str(e)[:300], self.target_id)
             self.db.activity(self.target_id, "Recon scan failed", f"{self.scan['input']}: {str(e)[:300]}")
             return
@@ -156,10 +170,14 @@ class Pipeline:
         live = sum(1 for h in self.hosts.values() if h.get("status") == "Live")
         summary = (f"{self.scan['input']}: {len(self.subs)} subdomains, {live} live hosts, "
                    f"{self.findings_new} new findings")
+        finished = now_iso()
         self.db.update("scans", {"id": f"eq.{self.scan_id}"},
                        {"status": "done", "stage": "done", "finished_at": now_iso(), "stages": self.stages,
-                        "last_stage_at": now_iso(), "total_stages": self.total_stages,
-                        "completed_stages": self.total_stages})
+                        "last_stage_at": finished, "worker_heartbeat_at": finished, "total_stages": self.total_stages,
+                        "completed_stages": self.total_stages,
+                        "duration_seconds": max(0, int((datetime.fromisoformat(finished) - datetime.fromisoformat(started)).total_seconds())),
+                        "hosts_discovered": len(self.hosts), "findings_created": self.findings_new,
+                        "findings_updated": self.findings_updated})
         self.db.notify(self.email, f"✅ Scan complete — {self.scan['input']}", summary, self.target_id)
         self.db.activity(self.target_id, f"Recon scan ({self.mode}) finished", summary)
 
@@ -687,6 +705,7 @@ class Pipeline:
             }
         existing_by_fingerprint = {fingerprint: (row_id, count) for fingerprint, row_id, count in existing}
         new = [r for r in rows if r["fingerprint"] not in existing_by_fingerprint]
+        self.findings_updated += len(rows) - len(new)
         seen_at = now_iso()
         for r in rows:
             match = existing_by_fingerprint.get(r["fingerprint"])

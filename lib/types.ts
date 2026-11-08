@@ -164,6 +164,15 @@ export interface Scan {
   total_stages?: number;
   completed_stages?: number;
   lifecycle_status?: string;
+  retry_count?: number;
+  max_retries?: number;
+  priority?: number;
+  worker_heartbeat_at?: string | null;
+  duration_seconds?: number | null;
+  hosts_discovered?: number;
+  findings_created?: number;
+  findings_updated?: number;
+  findings_resolved?: number;
   // Pipeline Builder (both nullable; a scan with no pipeline runs the fixed sequence).
   profile_id?: string | null;
   pipeline?: PipelineModule[] | null;

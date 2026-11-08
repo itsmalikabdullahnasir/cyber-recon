@@ -40,7 +40,7 @@ class Poller:
         """Atomically take the oldest queued scan (queued -> running)."""
         db = Supabase()
         try:
-            rows = db.select("scans", {"status": "eq.queued", "order": "created_at.asc", "limit": "1"})
+            rows = db.select("scans", {"status": "eq.queued", "order": "priority.desc,created_at.asc", "limit": "1"})
             if not rows:
                 return None
             sid = rows[0]["id"]
@@ -79,11 +79,16 @@ def recover_stale() -> None:
     """On startup, fail scans left 'running' by a previous crash. Queued ones stay."""
     db = Supabase()
     try:
-        db.update(
-            "scans",
-            {"status": "eq.running"},
-            {"status": "failed", "error": "worker restarted before the scan finished", "finished_at": now_iso()},
-        )
+        stale = db.select("scans", {"status": "eq.running"}, "id,retry_count,max_retries")
+        for scan in stale:
+            retry_count = int(scan.get("retry_count") or 0) + 1
+            if retry_count <= int(scan.get("max_retries") or 3):
+                db.update("scans", {"id": f"eq.{scan['id']}"},
+                          {"status": "queued", "retry_count": retry_count, "error": "worker restarted; automatically re-queued"})
+            else:
+                db.update("scans", {"id": f"eq.{scan['id']}"},
+                          {"status": "failed", "retry_count": retry_count,
+                           "error": "worker restarted and retry limit was reached", "finished_at": now_iso()})
     except Exception:
         log.exception("could not reset stale running scans")
     finally:
