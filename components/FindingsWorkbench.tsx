@@ -5,9 +5,15 @@ import type { Finding, Severity } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 
 type Sort = "severity" | "newest" | "cvss";
+type WorkbenchFinding = Finding & {
+  target_name?: string | null;
+  target_domain?: string | null;
+  host_ip?: string | null;
+  host_hostname?: string | null;
+};
 const PAGE_SIZE = 25;
 
-function downloadRows(rows: Finding[], format: "json" | "csv") {
+function downloadRows(rows: WorkbenchFinding[], format: "json" | "csv") {
   const values = rows.map((finding) => ({
     title: finding.title,
     severity: finding.severity,
@@ -15,6 +21,8 @@ function downloadRows(rows: Finding[], format: "json" | "csv") {
     cve: finding.cve_id,
     cvss: finding.cvss,
     affected_url: finding.affected_url,
+    target: finding.target_name ?? finding.target_domain,
+    host: finding.host_ip ?? finding.host_hostname,
     created_at: finding.created_at,
   }));
   const body = format === "json"
@@ -38,7 +46,7 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
   const [unresolvedOnly, setUnresolvedOnly] = useState(true);
   const [sort, setSort] = useState<Sort>("severity");
   const [page, setPage] = useState(1);
-  const [rows, setRows] = useState<Finding[]>(initialFindings.slice(0, PAGE_SIZE));
+  const [rows, setRows] = useState<WorkbenchFinding[]>(initialFindings.slice(0, PAGE_SIZE));
   const [total, setTotal] = useState(initialFindings.length);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +70,7 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
         setTotal(initialFindings.length);
       }
     } else {
-      const result = data as { rows?: Finding[]; total?: number };
+      const result = data as { rows?: WorkbenchFinding[]; total?: number };
       setRows(result.rows ?? []);
       setTotal(result.total ?? 0);
     }
@@ -107,7 +115,14 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
         {!loading && rows.map((finding) => (
           <div key={finding.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-white/5 bg-background/20 px-3 py-2">
             <span className={`w-16 text-[10px] font-bold uppercase ${finding.severity === "Critical" ? "text-rose-300" : finding.severity === "High" ? "text-pink-300" : "text-amber-300"}`}>{finding.severity}</span>
-            <span className="min-w-0 flex-1 truncate text-xs font-medium">{finding.title}</span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium">{finding.title}</p>
+              <p className="mt-0.5 truncate text-[10px] text-muted-dim">
+                {finding.target_name ?? finding.target_domain ?? "Unknown target"}
+                {" · "}
+                {finding.host_ip ?? finding.host_hostname ?? finding.affected_url ?? "Unknown host"}
+              </p>
+            </div>
             {finding.cve_id && <span className="font-mono text-[10px] text-accent">{finding.cve_id}</span>}
             {finding.cvss !== null && <span className="text-[10px] text-muted-dim">CVSS {finding.cvss}</span>}
             <span className="text-[10px] text-muted-dim">{finding.status}</span>
