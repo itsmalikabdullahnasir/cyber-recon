@@ -49,16 +49,17 @@ type FindingGroup = {
 };
 const PAGE_SIZE = 25;
 
-function downloadRows(rows: FindingGroup[], format: "json" | "csv") {
+function downloadRows(rows: FindingGroup[], format: "json" | "csv", filename = "recon-findings") {
   const values = rows.map((finding) => ({
     title: finding.title,
     severity: finding.severity,
     status: finding.status,
+    ip: finding.host_ip,
+    domain: finding.target_domain,
+    hostname: finding.host_hostname,
+    url: finding.affected_url,
     cve: finding.cve_id,
     cvss: finding.cvss,
-    affected_url: finding.affected_url,
-    target: finding.target_name ?? finding.target_domain,
-    host: finding.host_ip ?? finding.host_hostname,
     occurrences: finding.occurrence_count,
     first_seen: finding.first_seen_at,
     last_seen: finding.last_seen_at,
@@ -73,7 +74,7 @@ function downloadRows(rows: FindingGroup[], format: "json" | "csv") {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `recon-findings.${format}`;
+  anchor.download = `${filename}.${format}`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -96,6 +97,20 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
   const [total, setTotal] = useState(initialFindings.length);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const exportFiltered = async (format: "json" | "csv") => {
+    setError(null);
+    const { data, error: exportError } = await createClient().rpc("get_findings_export", {
+      p_search: query || null,
+      p_severity: severity === "All" ? null : severity,
+      p_unresolved_only: unresolvedOnly,
+    });
+    if (exportError) {
+      setError(exportError.message);
+      return;
+    }
+    downloadRows((data as FindingGroup[]) ?? [], format, "recon-findings-filtered");
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -153,6 +168,8 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
         <div className="flex gap-2">
           <button type="button" onClick={() => downloadRows(rows, "csv")} disabled={!rows.length} className="rounded-md border border-white/10 px-2.5 py-1.5 text-[11px] text-muted disabled:opacity-40">CSV</button>
           <button type="button" onClick={() => downloadRows(rows, "json")} disabled={!rows.length} className="rounded-md border border-white/10 px-2.5 py-1.5 text-[11px] text-muted disabled:opacity-40">JSON</button>
+          <button type="button" onClick={() => void exportFiltered("csv")} disabled={loading} className="rounded-md border border-accent/20 px-2.5 py-1.5 text-[11px] text-accent disabled:opacity-40">All CSV</button>
+          <button type="button" onClick={() => void exportFiltered("json")} disabled={loading} className="rounded-md border border-accent/20 px-2.5 py-1.5 text-[11px] text-accent disabled:opacity-40">All JSON</button>
         </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
