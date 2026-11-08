@@ -392,10 +392,11 @@ def test_poller_claims_oldest_and_counts(monkeypatch):
     # Claiming again skips the running one and takes the next oldest queued.
     assert p._claim_next()["id"] == "s1"
 
-    # recover_stale fails running scans but leaves queued ones intact.
+    # recover_stale automatically re-queues interrupted scans and leaves
+    # already queued work intact.
     jobs.recover_stale()
     statuses = {r["id"]: r["status"] for r in db.tables["scans"]}
-    assert statuses["s0"] == "failed" and statuses["s1"] == "failed" and statuses["s2"] == "queued"
+    assert statuses["s0"] == "queued" and statuses["s1"] == "queued" and statuses["s2"] == "queued"
 
 
 # --- API -----------------------------------------------------------------------

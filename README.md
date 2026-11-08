@@ -199,6 +199,18 @@ $env:PYTHONPATH = (Get-Location).Path
 python -m pytest -q
 ```
 
+Target reports are available from each target page: **Host report CSV** exports
+IP, hostname, ports, technologies, and vulnerability counts. **Executive
+report / PDF** opens a printable HTML report; use the browser print dialog to
+save it as PDF. The filtered findings workbench also supports all-results CSV
+and JSON exports after applying the corresponding Supabase migrations.
+
+Permission validation requires a deployed Supabase project and two
+authenticated test users. Verify that each user can only read and update their
+own scans, findings, and scan logs, while admin claims can access the intended
+team scope. This cannot be run against the repository without Supabase
+credentials.
+
 Useful checks before a commit:
 
 ```powershell

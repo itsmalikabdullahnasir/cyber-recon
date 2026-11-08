@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Scan } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 
 type Queue = { queued: number; running: number; done: number; failed: number };
 type QueueFilter = "all" | "queued" | "running" | "done" | "failed";
+type WorkerState = { ok: boolean; pending?: number | null; latencyMs?: number; error?: string };
 
 function durationMinutes(scan: Scan): number | null {
   if (!scan.started_at || !scan.finished_at) return null;
@@ -25,6 +26,29 @@ export function DashboardQueue({
   const [filter, setFilter] = useState<QueueFilter>("all");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [worker, setWorker] = useState<WorkerState | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    let active = true;
+    const check = async () => {
+      try {
+        const response = await fetch("/api/worker-health", { cache: "no-store" });
+        const data = (await response.json()) as WorkerState;
+        if (active) setWorker(data);
+      } catch {
+        if (active) setWorker({ ok: false, error: "Health check failed" });
+      }
+    };
+    void check();
+    const timer = setInterval(check, 15000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const estimate = useMemo(() => {
     const durations = scans.map(durationMinutes).filter((value): value is number => value !== null);
@@ -35,11 +59,15 @@ export function DashboardQueue({
   const queuedPosition = useMemo(() => {
     const sorted = scans
       .filter((scan) => scan.status === "queued")
-      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+      .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.created_at.localeCompare(b.created_at));
     return new Map(sorted.map((scan, index) => [scan.id, index + 1]));
   }, [scans]);
 
   const visible = filter === "all" ? scans : scans.filter((scan) => scan.status === filter);
+  const activeScan = scans.find((scan) => scan.status === "running");
+  const heartbeatAge = activeScan?.worker_heartbeat_at
+    ? Math.max(0, Math.round((now - new Date(activeScan.worker_heartbeat_at).getTime()) / 1000))
+    : null;
 
   async function runAction(action: "cancel" | "retry" | "clear") {
     setBusy(true);
@@ -66,6 +94,16 @@ export function DashboardQueue({
             {queue.queued > 0 ? `Estimated wait: about ${estimate >= 60 ? `${Math.floor(estimate / 60)}h ${estimate % 60}m` : `${estimate}m`}.` : "No queued work."}
           </p>
         </div>
+        <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+          worker?.ok ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-300" :
+            worker === null ? "border-white/10 bg-white/[0.02] text-muted-dim" :
+              "border-rose-500/25 bg-rose-500/5 text-rose-300"
+        }`}>
+          <span className="font-medium">{worker?.ok ? "Worker online" : worker === null ? "Checking worker..." : "Worker offline"}</span>
+          {worker?.ok
+            ? <span className="ml-2 text-muted-dim">{worker.latencyMs ?? "—"}ms response · {heartbeatAge === null ? "no active scan heartbeat" : `scan heartbeat ${heartbeatAge}s ago`}</span>
+            : <span className="ml-2">{worker?.error ?? "New scans will remain queued until the worker reconnects."}</span>}
+        </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" disabled={busy || queue.queued === 0} onClick={() => void runAction("cancel")} className="rounded-md border border-rose-500/30 px-2.5 py-1.5 text-[11px] text-rose-300 disabled:opacity-40">Cancel queued</button>
           <button type="button" disabled={busy || queue.failed === 0} onClick={() => void runAction("retry")} className="rounded-md border border-amber-500/30 px-2.5 py-1.5 text-[11px] text-amber-300 disabled:opacity-40">Retry failed</button>
@@ -91,7 +129,7 @@ export function DashboardQueue({
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[620px] text-left text-xs">
             <thead className="text-[10px] uppercase tracking-widest text-muted-dim">
-              <tr><th className="pb-2">Target</th><th className="pb-2">Status</th><th className="pb-2">Position</th><th className="pb-2">Stage</th><th className="pb-2">Created</th></tr>
+              <tr><th className="pb-2">Target</th><th className="pb-2">Status</th><th className="pb-2">Position</th><th className="pb-2">Priority</th><th className="pb-2">Retries</th><th className="pb-2">Stage</th><th className="pb-2">Created</th></tr>
             </thead>
             <tbody>
               {visible.slice(0, 20).map((scan) => (
@@ -99,6 +137,8 @@ export function DashboardQueue({
                   <td className="py-2 font-mono">{scan.input}</td>
                   <td className="py-2 capitalize">{scan.status}</td>
                   <td className="py-2 text-muted-dim">{scan.status === "queued" ? `#${queuedPosition.get(scan.id) ?? "?"}` : "—"}</td>
+                  <td className="py-2 text-muted-dim">{scan.priority ?? 0}</td>
+                  <td className="py-2 text-muted-dim">{scan.retry_count ?? 0}/{scan.max_retries ?? 3}</td>
                   <td className="py-2 text-muted-dim">{scan.stage ?? "waiting"}</td>
                   <td className="py-2 text-muted-dim">{new Date(scan.created_at).toLocaleString()}</td>
                 </tr>

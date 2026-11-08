@@ -14,6 +14,7 @@ import { NotesTab } from "@/components/NotesTab";
 import { SubdomainsTab } from "@/components/SubdomainsTab";
 import { ShodanPanel } from "@/components/ShodanPanel";
 import { CVSSCalculator } from "@/components/CVSSCalculator";
+import { ReportActions } from "@/components/ReportActions";
 import {
   WhoisPanel, DnsPanel, GeoPanel, SslPanel, ThreatPanel,
   ReputationPanel, CategorizationPanel, AvailabilityPanel,
@@ -103,6 +104,7 @@ export function TargetDetailClient({
             }`}>{target.priority} priority</span>
           )}
         </div>
+        <ReportActions target={target} hosts={hosts} findings={findings} scans={scans} />
 
         <div className="rounded-xl border border-white/5 bg-surface p-4">
           <div className="mb-3 flex items-center justify-between">
