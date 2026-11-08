@@ -45,14 +45,13 @@ export function DashboardQueue({
     setBusy(true);
     setMessage(null);
     const supabase = createClient();
-    const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
-    const query = action === "cancel"
-      ? supabase.from("scans").update({ status: "failed", error: "cancelled by user", finished_at: new Date().toISOString() }).eq("status", "queued")
+    const rpc = action === "cancel"
+      ? supabase.rpc("cancel_queued_scans")
       : action === "retry"
-        ? supabase.from("scans").update({ status: "queued", error: null, stage: null, stages: {}, started_at: null, finished_at: null }).eq("status", "failed")
-        : supabase.from("scans").delete().in("status", ["done", "failed"]).lt("created_at", cutoff);
-    const { error } = await query;
-    setMessage(error ? error.message : action === "clear" ? "Old completed scans cleared." : "Queue updated.");
+        ? supabase.rpc("retry_failed_scans")
+        : supabase.rpc("clear_old_scans", { p_days: 7 });
+    const { data: changed, error } = await rpc;
+    setMessage(error ? error.message : `${changed ?? 0} scan${changed === 1 ? "" : "s"} ${action === "clear" ? "cleared" : action === "cancel" ? "cancelled" : "re-queued"}.`);
     setBusy(false);
     if (!error) onRefresh();
   }
