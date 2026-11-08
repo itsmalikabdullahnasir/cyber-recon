@@ -330,7 +330,7 @@ export function ConsoleClient({
       if (liveRefreshTimer.current) clearTimeout(liveRefreshTimer.current);
       supabase.removeChannel(channel);
     };
-  }, [groupId, loadResults, refreshPending]);
+  }, [groupId, loadFor, refreshPending]);
 
   const parsed = useMemo(() => parseInput(input), [input]);
   const importable = useMemo(() => parseImport(input), [input]);

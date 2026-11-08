@@ -74,9 +74,11 @@ export function HostDetailClient({
   const [fLoading, setFLoading] = useState(false);
   const [fAdding, setFAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // The lazy initializer runs once for this mounted host view, keeping render
+  // pure while the asset-age labels remain stable during form edits.
+  const [now] = useState(Date.now);
 
   // Asset intelligence calculations
-  const now = Date.now();
   const createdAtMs = host.created_at ? new Date(host.created_at).getTime() : 0;
   const lastScannedMs = host.last_scanned ? new Date(host.last_scanned).getTime() : 0;
 

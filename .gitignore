@@ -10,6 +10,9 @@
 
 # testing
 /coverage
+/.pytest_cache/
+**/.pytest_cache/
+/.pytest-tmp/
 
 # next.js
 /.next/
