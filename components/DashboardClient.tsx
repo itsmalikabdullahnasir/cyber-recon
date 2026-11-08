@@ -359,15 +359,15 @@ export function DashboardClient({
         }
         scanStatus.current.set(row.id, row.status);
         if (runningScanRef.current || row.status === "queued" || row.status === "running") {
-          scheduleRefresh();
+          scheduleRefreshRef.current();
         }
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "findings" }, () => {
-        if (runningScanRef.current) scheduleRefresh();
+        if (runningScanRef.current) scheduleRefreshRef.current();
       })
       .subscribe();
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible" && runningScanRef.current) scheduleRefresh();
+      if (document.visibilityState === "visible" && runningScanRef.current) scheduleRefreshRef.current();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
@@ -432,19 +432,32 @@ export function DashboardClient({
   const criticalFindings = counts.criticalFindings;
   const activeScans = counts.activeScans;
 
+  const displayedSeverity = useMemo(() => {
+    const values = Object.values(counts.severity);
+    // Older deployed dashboard RPCs can return null/zero aggregate fields even
+    // while returning the latest findings list. Never render a misleading empty chart.
+    if (findings.length > 0 && (values.some((value) => value === null) || values.every((value) => (value ?? 0) === 0))) {
+      return findings.reduce<Record<string, number>>((result, finding) => {
+        result[finding.severity] = (result[finding.severity] ?? 0) + 1;
+        return result;
+      }, { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0 });
+    }
+    return counts.severity;
+  }, [counts.severity, findings]);
+
+  const displayedFindings = counts.findings ?? (findings.length || null);
   const severityData = useMemo(() => {
-    return Object.entries(counts.severity)
+    return Object.entries(displayedSeverity)
       .filter((entry): entry is [string, number] => entry[1] !== null)
       .map(([label, value]) => ({ label, value, color: SEVERITY_COLORS[label] }));
-  }, [counts.severity]);
+  }, [displayedSeverity]);
 
   const riskScore = useMemo(() => {
-    if (counts.findings === null) return 0;
-    if (counts.findings === 0) return 0;
+    if (!displayedFindings) return 0;
     const w = { Critical: 25, High: 15, Medium: 8, Low: 3, Info: 0 };
-    const score = Object.entries(counts.severity).reduce((s, [severity, count]) => s + (w[severity as keyof typeof w] ?? 0) * (count ?? 0), 0);
-    return Math.min(100, Math.round((score / (counts.findings * 10)) * 100));
-  }, [counts]);
+    const score = Object.entries(displayedSeverity).reduce((s, [severity, count]) => s + (w[severity as keyof typeof w] ?? 0) * (count ?? 0), 0);
+    return Math.min(100, Math.round((score / (displayedFindings * 10)) * 100));
+  }, [displayedFindings, displayedSeverity]);
 
   // Scan activity over the last 7 days.
   const derivedScanSeries = useMemo(() => {
@@ -570,14 +583,14 @@ export function DashboardClient({
       <div className="animate-fade-in grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard label="Targets" value={counts.targets} error={countErrors.targets} loading={countLoading} onRetry={() => void retryMetric("targets")} color="#a855f7" series={[1, 2, 2, 3, counts.targets ?? 0]} />
         <KpiCard label="Live hosts" value={liveHosts} error={countErrors.liveHosts} loading={countLoading} onRetry={() => void retryMetric("liveHosts")} sub={counts.hosts === null ? undefined : `${counts.hosts} total`} color="#d946ef" series={[2, 3, 5, 4, liveHosts ?? 0]} />
-        <KpiCard label="Findings" value={counts.findings} error={countErrors.findings} loading={countLoading} onRetry={() => void retryMetric("findings")} sub={criticalFindings === null ? undefined : `${criticalFindings} crit/high`} color="#ec4899" accent={(criticalFindings ?? 0) > 0} series={scanSeries} />
+        <KpiCard label="Findings" value={displayedFindings} error={countErrors.findings} loading={countLoading} onRetry={() => void retryMetric("findings")} sub={criticalFindings === null ? undefined : `${criticalFindings} crit/high`} color="#ec4899" accent={(criticalFindings ?? 0) > 0} series={scanSeries} />
         <KpiCard label="Scan queue" value={activeScans} error={countErrors.activeScans} loading={countLoading} onRetry={() => void retryMetric("activeScans")} sub={counts.scans === null ? undefined : `${queueState.running} running · ${counts.scans} total`} color="#f59e0b" live={queueState.running > 0} series={scanSeries} />
       </div>
 
       {/* Charts */}
       <DashboardCharts
         severityData={severityData}
-        findings={counts.findings}
+        findings={displayedFindings}
         scanCount={counts.scans}
         riskScore={riskScore}
         activity={scanActivity}

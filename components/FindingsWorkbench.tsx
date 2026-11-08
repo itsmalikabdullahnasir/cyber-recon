@@ -631,7 +631,7 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
             </div>
           ))}
 
-        {!loading && !filteredRows.length && (
+        {!loading && !error && !filteredRows.length && (
           <p className="py-10 text-center text-xs text-muted-dim">
             No findings match the current filter criteria.
           </p>
