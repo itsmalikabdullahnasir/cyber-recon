@@ -14,6 +14,7 @@ import { AreaChart } from "@/components/charts";
 import { DashboardQueue } from "@/components/DashboardQueue";
 import { FindingsWorkbench } from "@/components/FindingsWorkbench";
 import dynamic from "next/dynamic";
+import { DeploymentHealth } from "@/components/DeploymentHealth";
 
 const DashboardCharts = dynamic(
   () => import("@/components/DashboardCharts").then((module) => module.DashboardCharts),
@@ -114,6 +115,8 @@ export function DashboardClient({
   scanActivity: scanActivityInit,
   scanActivity24h: scanActivity24hInit,
   userName,
+  deploymentHealth,
+  dataQuality,
 }: {
   targets: Target[];
   hosts: Host[];
@@ -138,6 +141,8 @@ export function DashboardClient({
   scanActivity: { date: string; queued: number; running: number; done: number; failed: number }[];
   scanActivity24h: { date: string; queued: number; running: number; done: number; failed: number }[];
   userName: string;
+  deploymentHealth?: Record<string, unknown> | null;
+  dataQuality?: Record<string, unknown> | null;
 }) {
   // Hide the hidden Scan Console bucket (works even before migration 2 adds the column).
   const targets = targetsAll.filter((t) => !t.is_console);
@@ -499,6 +504,7 @@ export function DashboardClient({
 
   return (
     <div className="flex flex-col gap-6">
+      <DeploymentHealth health={deploymentHealth as Parameters<typeof DeploymentHealth>[0]["health"]} quality={dataQuality as Parameters<typeof DeploymentHealth>[0]["quality"]} />
       {/* Hero */}
       <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-surface p-6">
         <div className="pointer-events-none absolute inset-0 grid-bg opacity-60" />

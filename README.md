@@ -211,6 +211,12 @@ own scans, findings, and scan logs, while admin claims can access the intended
 team scope. This cannot be run against the repository without Supabase
 credentials.
 
+The dashboard deployment health panel and finding data-quality panel require
+`20261108001600_health_quality_scan_history.sql`. The queue links each scan to
+`/scans/<scan-id>` for stage timelines, heartbeat status, logs, retry metadata,
+and a downloadable JSON report. Queue priority can be changed from the queue
+table for queued scans.
+
 Useful checks before a commit:
 
 ```powershell

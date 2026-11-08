@@ -100,6 +100,8 @@ Apply these migrations in Supabase in filename order:
 
 1. `20261108001300_scan_observability_permissions.sql`
 2. `20261108001400_findings_filtered_export.sql`
+3. `20261108001500_repair_findings_groups_rpc.sql`
+4. `20261108001600_health_quality_scan_history.sql`
 
 The earlier migrations for grouping, detail views, lifecycle actions, and stable finding identity must also be applied if they are not already deployed:
 
@@ -108,6 +110,10 @@ The earlier migrations for grouping, detail views, lifecycle actions, and stable
 - `20261108001000_findings_lifecycle_actions.sql`
 - `20261108001100_stable_finding_identity.sql`
 - `20261108001200_fix_null_separator_fingerprints.sql`
+
+The health migration adds deployment/RPC readiness checks, finding quality
+metrics, query indexes, and owner-safe scan priority updates. It also enables
+the dedicated `/scans/<scan-id>` history page.
 
 After applying migrations:
 
@@ -151,4 +157,3 @@ Live permission testing was not run in this checkout because no Supabase credent
 - `8701f44` — Group repeated findings in workbench
 - `cd8cf82` — Show exact finding scan identity
 - `7564d53` — Show finding target and host context
-

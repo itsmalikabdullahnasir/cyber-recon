@@ -84,6 +84,16 @@ export function DashboardQueue({
     if (!error) onRefresh();
   }
 
+  async function setPriority(scanId: string, value: string) {
+    const priority = Number(value);
+    if (!Number.isInteger(priority) || priority < 0 || priority > 100) return;
+    setBusy(true);
+    const { error } = await createClient().rpc("set_scan_priority", { p_scan_id: scanId, p_priority: priority });
+    setMessage(error ? error.message : "Scan priority updated.");
+    setBusy(false);
+    if (!error) onRefresh();
+  }
+
   return (
     <section className="card p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -134,10 +144,16 @@ export function DashboardQueue({
             <tbody>
               {visible.slice(0, 20).map((scan) => (
                 <tr key={scan.id} className="border-t border-white/[0.04]">
-                  <td className="py-2 font-mono">{scan.input}</td>
+                  <td className="py-2 font-mono"><a href={`/scans/${scan.id}`} onClick={(event) => event.stopPropagation()} className="hover:text-accent hover:underline">{scan.input}</a></td>
                   <td className="py-2 capitalize">{scan.status}</td>
                   <td className="py-2 text-muted-dim">{scan.status === "queued" ? `#${queuedPosition.get(scan.id) ?? "?"}` : "—"}</td>
-                  <td className="py-2 text-muted-dim">{scan.priority ?? 0}</td>
+                  <td className="py-2">
+                    {scan.status === "queued" ? (
+                      <select value={scan.priority ?? 0} disabled={busy} onChange={(event) => void setPriority(scan.id, event.target.value)} className="rounded border border-white/10 bg-background px-1 py-0.5 text-[11px]">
+                        <option value="0">0</option><option value="25">25</option><option value="50">50</option><option value="75">75</option><option value="100">100</option>
+                      </select>
+                    ) : <span className="text-muted-dim">{scan.priority ?? 0}</span>}
+                  </td>
                   <td className="py-2 text-muted-dim">{scan.retry_count ?? 0}/{scan.max_retries ?? 3}</td>
                   <td className="py-2 text-muted-dim">{scan.stage ?? "waiting"}</td>
                   <td className="py-2 text-muted-dim">{new Date(scan.created_at).toLocaleString()}</td>

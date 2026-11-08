@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { DashboardClient } from "@/components/DashboardClient";
 import { TopNav } from "@/components/TopNav";
 import type { Activity, Finding, Host, Scan, Target } from "@/lib/types";
+import { DeploymentHealth } from "@/components/DeploymentHealth";
 
 type DashboardData = {
   targets: Target[];
@@ -41,6 +42,10 @@ export default async function DashboardPage() {
   if (!user) redirect("/login");
 
   const { data: rpcData } = await supabase.rpc("get_dashboard_data");
+  const [{ data: healthData }, { data: qualityData }] = await Promise.all([
+    supabase.rpc("get_database_health"),
+    supabase.rpc("get_findings_data_quality"),
+  ]);
   if (rpcData) {
     const dashboard = rpcData as DashboardData;
     return (
@@ -80,6 +85,8 @@ export default async function DashboardPage() {
             scanActivity={dashboard.scan_activity ?? []}
             scanActivity24h={dashboard.scan_activity_24h ?? []}
             userName={user.email ?? "operator"}
+            deploymentHealth={healthData ?? null}
+            dataQuality={qualityData ?? null}
           />
         </div>
       </>
@@ -179,6 +186,7 @@ export default async function DashboardPage() {
     <>
       <TopNav userEmail={user.email ?? ""} />
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 py-6 sm:px-6">
+        <DeploymentHealth health={healthData ?? null} quality={qualityData ?? null} />
         <DashboardClient
           targets={targets ?? []}
           hosts={hostsResult.data ?? []}
