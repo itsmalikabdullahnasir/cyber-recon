@@ -7,8 +7,8 @@ alter table public.findings add column if not exists occurrence_count integer no
 -- Normalize existing rows to the same identity used by the worker.
 with ranked as (
   select ctid,
-    digest(concat_ws(chr(0), target_id::text, host_id::text, coalesce(affected_url, ''),
-      coalesce(cve_id, ''), title), 'sha256') as stable_fingerprint,
+    digest(jsonb_build_array(target_id::text, host_id::text, coalesce(affected_url, ''),
+      coalesce(cve_id, ''), title)::text, 'sha256') as stable_fingerprint,
     row_number() over (
       partition by target_id, host_id, coalesce(affected_url, ''), coalesce(cve_id, ''), title
       order by created_at, id

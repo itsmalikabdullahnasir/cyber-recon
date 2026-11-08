@@ -67,7 +67,7 @@ as $$
   ),
   grouped as (
     select
-      md5(concat_ws(chr(0), finding_key, host_id::text, coalesce(affected_url, ''))) as group_id,
+      md5(jsonb_build_array(finding_key, host_id::text, coalesce(affected_url, ''))::text) as group_id,
       finding_key,
       host_id,
       affected_url,

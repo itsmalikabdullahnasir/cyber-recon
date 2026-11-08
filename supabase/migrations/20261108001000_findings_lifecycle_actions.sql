@@ -35,7 +35,7 @@ begin
       finding_priority = coalesce(p_priority, f.finding_priority),
       finding_notes = case when p_notes is null then f.finding_notes else nullif(trim(p_notes), '') end,
       assigned_to = case when p_assigned_to is null then f.assigned_to else nullif(trim(p_assigned_to), '') end
-  where md5(concat_ws(chr(0), coalesce(nullif(f.cve_id, ''), f.title), f.host_id::text, coalesce(f.affected_url, ''))) = p_group_id;
+  where md5(jsonb_build_array(coalesce(nullif(f.cve_id, ''), f.title), f.host_id::text, coalesce(f.affected_url, ''))::text) = p_group_id;
 
   get diagnostics updated_count = row_count;
   return updated_count;

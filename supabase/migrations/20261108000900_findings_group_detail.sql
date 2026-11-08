@@ -46,7 +46,7 @@ as $$
         or f.severity::text ilike '%' || p.search_text || '%')
   ),
   grouped as (
-    select md5(concat_ws(chr(0), finding_key, host_id::text, coalesce(affected_url, ''))) as group_id,
+    select md5(jsonb_build_array(finding_key, host_id::text, coalesce(affected_url, ''))::text) as group_id,
       finding_key, host_id, affected_url, max(title) as title, max(cve_id) as cve_id,
       (array_agg(severity::text order by case severity::text when 'Critical' then 5 when 'High' then 4 when 'Medium' then 3 when 'Low' then 2 else 1 end desc))[1] as severity,
       (array_agg(status order by created_at desc))[1] as status, max(cvss) as cvss,
