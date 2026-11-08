@@ -32,6 +32,18 @@ const SEVERITY_COLORS: Record<string, string> = {
   Info: "#5c5775",
 };
 type MetricKey = "targets" | "hosts" | "liveHosts" | "findings" | "criticalFindings" | "scans" | "activeScans";
+type ScanSummary = {
+  scan_id: string;
+  finding_count: number;
+  critical_count: number;
+  high_count: number;
+  medium_count: number;
+  low_count: number;
+  info_count: number;
+  host_count: number;
+  live_count: number;
+  risk_score: number;
+};
 
 function NowScanning({ scan, queue, loading, error, onRetry }: {
   scan: Scan | null;
@@ -140,6 +152,7 @@ export function DashboardClient({
   const [scanSeriesOverride, setScanSeriesOverride] = useState<number[] | null>(scanSeriesInit ?? null);
   const [scanActivity, setScanActivity] = useState(scanActivityInit);
   const [scanActivity24h, setScanActivity24h] = useState(scanActivity24hInit);
+  const [scanSummaries, setScanSummaries] = useState<ScanSummary[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [dataError, setDataError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<{ id: string; text: string; kind: "ok" | "err" }[]>([]);
@@ -227,12 +240,18 @@ export function DashboardClient({
       if (!refreshPending.current) return;
       refreshPending.current = false;
       const supabase = createClient();
-      const { data, error } = await supabase.rpc("get_dashboard_data");
+      const [{ data, error }, { data: summaryData, error: summaryError }] = await Promise.all([
+        supabase.rpc("get_dashboard_data"),
+        supabase.rpc("get_scan_summaries"),
+      ]);
       if (error || !data) {
         setDataError(error?.message ?? "The database returned no dashboard data");
         setRunningScanError(error?.message ?? "The database returned no dashboard data");
         setRunningScanLoading(false);
         return;
+      }
+      if (!summaryError && Array.isArray(summaryData)) {
+        setScanSummaries(summaryData as ScanSummary[]);
       }
       const dashboard = data as {
         scans: Scan[];
@@ -265,6 +284,19 @@ export function DashboardClient({
     scheduleRefreshRef.current = scheduleRefresh;
     // The ref keeps the polling callback current without recreating the timer.
   }, [scheduleRefresh]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const supabase = createClient();
+    void supabase.rpc("get_scan_summaries").then(({ data, error }) => {
+      if (!cancelled && !error && Array.isArray(data)) {
+        setScanSummaries(data as ScanSummary[]);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     runningScanRef.current = Boolean(runningScan);
@@ -399,9 +431,12 @@ export function DashboardClient({
 
   const scanRiskById = useMemo(() => {
     const m = new Map<string, number>();
-    for (const s of scans) m.set(s.id, scanRiskScore(hostsByScan.get(s.id) ?? [], findingsByScan.get(s.id) ?? []));
+    for (const s of scans) {
+      const summary = scanSummaries.find((item) => item.scan_id === s.id);
+      m.set(s.id, summary?.risk_score ?? scanRiskScore(hostsByScan.get(s.id) ?? [], findingsByScan.get(s.id) ?? []));
+    }
     return m;
-  }, [scans, hostsByScan, findingsByScan]);
+  }, [scans, scanSummaries, hostsByScan, findingsByScan]);
 
   const filteredScans = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
@@ -418,12 +453,16 @@ export function DashboardClient({
     const dir = dirStr === "asc" ? 1 : -1;
     base.sort((a, b) => {
       if (key === "risk") return ((scanRiskById.get(a.id) ?? 0) - (scanRiskById.get(b.id) ?? 0)) * dir;
-      if (key === "findings") return ((findingsByScan.get(a.id)?.length ?? 0) - (findingsByScan.get(b.id)?.length ?? 0)) * dir;
+      if (key === "findings") {
+        const aCount = scanSummaries.find((item) => item.scan_id === a.id)?.finding_count ?? findingsByScan.get(a.id)?.length ?? 0;
+        const bCount = scanSummaries.find((item) => item.scan_id === b.id)?.finding_count ?? findingsByScan.get(b.id)?.length ?? 0;
+        return (aCount - bCount) * dir;
+      }
       if (key === "group") return (targetNameById.get(a.target_id) ?? "").localeCompare(targetNameById.get(b.target_id) ?? "") * dir;
       return a.created_at.localeCompare(b.created_at) * dir; // date
     });
     return base;
-  }, [scans, debouncedSearch, scanSort, scanRiskById, findingsByScan, targetNameById]);
+  }, [scans, debouncedSearch, scanSort, scanRiskById, findingsByScan, scanSummaries, targetNameById]);
 
   useEffect(() => {
     // This resets pagination when filters change; it intentionally synchronizes
@@ -559,6 +598,7 @@ export function DashboardClient({
                 assignTargets={targets.map((target) => ({ id: target.id, name: target.name }))}
                 scanHosts={hostsByScan.get(s.id) ?? []}
                 scanFindings={findingsByScan.get(s.id) ?? []}
+                scanSummary={scanSummaries.find((item) => item.scan_id === s.id)}
               />
             ))}
             </div>
@@ -608,6 +648,7 @@ export function DashboardClient({
                     assignTargets={targets.map((target) => ({ id: target.id, name: target.name }))}
                     scanHosts={hostsByScan.get(scan.id) ?? []}
                     scanFindings={findingsByScan.get(scan.id) ?? []}
+                    scanSummary={scanSummaries.find((item) => item.scan_id === scan.id)}
                   />
                 ))}
               </div>

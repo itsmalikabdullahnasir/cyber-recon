@@ -8,6 +8,8 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Modal } from "@/components/Modal";
 import { scanRiskScore, riskTier } from "@/lib/risk";
 
+type ScanSummary = { finding_count: number; host_count: number; risk_score: number };
+
 // Ordered pipeline stages, with short labels for the progress chips.
 export const STAGE_ORDER = [
   "subfinder", "dnsx", "httpx", "fingerprint", "origin", "cve",
@@ -63,6 +65,7 @@ export function ScanRow({
   assignTargets = [],
   scanHosts,
   scanFindings,
+  scanSummary,
 }: {
   scan: Scan;
   assignTargets?: Pick<Target, "id" | "name">[];
@@ -70,6 +73,7 @@ export function ScanRow({
   // dashboard), used to show a per-scan risk tile without an extra query.
   scanHosts?: Host[];
   scanFindings?: Finding[];
+  scanSummary?: ScanSummary;
 }) {
   const [busy, setBusy] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -176,7 +180,7 @@ export function ScanRow({
   const currentLabel = scan.stage ? STAGE_LABELS[scan.stage] ?? scan.stage : null;
   // Per-scan risk score (hosts + findings), shown only when the caller supplied
   // this scan's rows (dashboard does; console list doesn't).
-  const risk = scanHosts && scanFindings ? scanRiskScore(scanHosts, scanFindings) : null;
+  const risk = scanSummary?.risk_score ?? (scanHosts && scanFindings ? scanRiskScore(scanHosts, scanFindings) : null);
   const riskT = risk !== null ? riskTier(risk) : null;
 
   return (
