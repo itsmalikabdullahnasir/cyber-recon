@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type { Target, Host, Finding, Subdomain, ScopeEntry, Scan } from "@/lib/types";
 import { ScopeManager } from "@/components/ScopeManager";
 import { ScanLauncher } from "@/components/ScanLauncher";
@@ -26,7 +27,7 @@ import {
   BgpPanel, CdnPanel, NetblocksPanel, HistoryPanel,
 } from "@/components/InfraLookup";
 
-type Tab = "hosts" | "findings" | "notes" | "overview" | "subdomains" | "shodan" | "cvss" | "recon" | "security" | "infra" | "vm";
+type Tab = "assets" | "hosts" | "findings" | "notes" | "overview" | "subdomains" | "shodan" | "cvss" | "recon" | "security" | "infra" | "vm";
 
 export function TargetDetailClient({
   target, hosts, findings, subdomains, subdomainCount, scopeEntries, scans,
@@ -43,6 +44,7 @@ export function TargetDetailClient({
 
   const tabs: { id: Tab; label: string; icon: string; count?: number }[] = [
     { id: "overview", label: "Overview", icon: "📊" },
+    { id: "assets", label: "Asset view", icon: "🧭", count: hosts.length },
     { id: "vm", label: "Recon VM", icon: "🛰️" },
     { id: "subdomains", label: "Subdomains", icon: "🌐", count: subdomainCount },
     { id: "hosts", label: "Hosts", icon: "🖥️", count: hosts.length },
@@ -203,6 +205,7 @@ export function TargetDetailClient({
       )}
 
       {tab === "subdomains" && <SubdomainsTab targetId={target.id} subdomains={subdomains} totalCount={subdomainCount} />}
+      {tab === "assets" && <AssetView target={target} hosts={hosts} findings={findings} scans={scans} />}
       {tab === "hosts" && <HostsTab targetId={target.id} hosts={hosts} />}
       {tab === "findings" && <FindingsTab targetId={target.id} hosts={hosts} findings={findings} />}
       {tab === "shodan" && <ShodanPanel targetId={target.id} targetName={target.name} />}
@@ -253,6 +256,45 @@ export function TargetDetailClient({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function AssetView({ target, hosts, findings, scans }: { target: Target; hosts: Host[]; findings: Finding[]; scans: Scan[] }) {
+  return (
+    <div className="rounded-xl border border-white/5 bg-surface p-5">
+      <div className="border-l-2 border-accent pl-4">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Domain</p>
+        <h2 className="mt-1 text-lg font-semibold">{target.domain ?? target.name}</h2>
+      </div>
+      <div className="mt-5 space-y-3">
+        {hosts.map((host) => {
+          const hostFindings = findings.filter((finding) => finding.host_id === host.id);
+          return (
+            <div key={host.id} className="ml-3 border-l border-white/10 pl-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Link href={`/targets/${target.id}/hosts/${host.id}`} className="font-mono text-sm text-accent hover:underline">
+                  {host.ip}{host.hostname ? ` · ${host.hostname}` : ""}
+                </Link>
+                <span className="text-[10px] text-muted-dim">{hostFindings.length} finding{hostFindings.length === 1 ? "" : "s"}</span>
+              </div>
+              <div className="mt-2 grid gap-2 text-xs text-muted sm:grid-cols-3">
+                <div><p className="text-[10px] uppercase text-muted-dim">Open ports</p><p className="mt-1">{host.open_ports ?? "None recorded"}</p></div>
+                <div><p className="text-[10px] uppercase text-muted-dim">Technologies</p><p className="mt-1">{host.tech?.join(", ") || host.services || "None recorded"}</p></div>
+                <div><p className="text-[10px] uppercase text-muted-dim">Findings</p><p className="mt-1">{hostFindings.slice(0, 3).map((finding) => finding.cve_id ?? finding.title).join(" · ") || "No findings"}</p></div>
+              </div>
+            </div>
+          );
+        })}
+        {!hosts.length && <p className="py-4 text-sm text-muted-dim">No hosts discovered for this domain yet.</p>}
+      </div>
+      <div className="mt-6 border-t border-white/5 pt-4">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Scan history</p>
+        <div className="mt-2 space-y-2">
+          {scans.map((scan) => <p key={scan.id} className="text-xs text-muted">{new Date(scan.created_at).toLocaleString()} · {scan.input} · {scan.status}</p>)}
+          {!scans.length && <p className="text-xs text-muted-dim">No scans recorded.</p>}
+        </div>
+      </div>
     </div>
   );
 }

@@ -664,17 +664,48 @@ class Pipeline:
         }})
 
     def _save_findings(self, rows: list[dict]) -> int:
-        """Insert findings, skipping fingerprints that already exist (keeps user edits like 'False Positive')."""
+        """Upsert stable findings while preserving user-managed lifecycle fields."""
         if not rows:
             return 0
         for r in rows:
-            r["fingerprint"] = hashlib.sha256(r["fingerprint"].encode()).hexdigest()
+            r["fingerprint"] = hashlib.sha256(
+                "\0".join([
+                    str(r.get("target_id") or ""),
+                    str(r.get("host_id") or ""),
+                    str(r.get("affected_url") or ""),
+                    str(r.get("cve_id") or ""),
+                    str(r.get("title") or ""),
+                ]).encode()
+            ).hexdigest()
         rows = list({r["fingerprint"]: r for r in rows}.values())
         existing = set()
         for chunk in range(0, len(rows), 50):
             fps = ",".join(r["fingerprint"] for r in rows[chunk:chunk + 50])
-            existing |= {r["fingerprint"] for r in self.db.select("findings", {"fingerprint": f"in.({fps})"}, "fingerprint")}
-        new = [r for r in rows if r["fingerprint"] not in existing]
+            existing |= {
+                (r["fingerprint"], r["id"], r.get("occurrence_count") or 1)
+                for r in self.db.select("findings", {"fingerprint": f"in.({fps})"}, "id,fingerprint,occurrence_count")
+            }
+        existing_by_fingerprint = {fingerprint: (row_id, count) for fingerprint, row_id, count in existing}
+        new = [r for r in rows if r["fingerprint"] not in existing_by_fingerprint]
+        seen_at = now_iso()
+        for r in rows:
+            match = existing_by_fingerprint.get(r["fingerprint"])
+            if not match:
+                r["first_seen_at"] = seen_at
+                r["last_seen_at"] = seen_at
+                r["occurrence_count"] = 1
+                continue
+            row_id, count = match
+            self.db.update("findings", {"id": f"eq.{row_id}"}, {
+                "last_seen_at": seen_at,
+                "occurrence_count": count + 1,
+                "evidence": r.get("evidence"),
+                "remediation": r.get("remediation"),
+                "cvss": r.get("cvss"),
+                "cwe": r.get("cwe"),
+                "source": r.get("source"),
+                "scan_id": r.get("scan_id"),
+            })
         for chunk in range(0, len(new), 100):
             self.db.insert("findings", new[chunk:chunk + 100], on_conflict="fingerprint", ignore_duplicates=True)
         self.findings_new += len(new)
