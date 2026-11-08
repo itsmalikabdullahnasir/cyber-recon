@@ -13,7 +13,17 @@ type Occurrence = {
   source: string | null;
   status: string;
   cvss: number | null;
+  cwe: string | null;
+  evidence: string | null;
+  remediation: string | null;
   created_at: string;
+};
+type HostPort = {
+  port: number;
+  protocol: string;
+  service: string | null;
+  product: string | null;
+  version: string | null;
 };
 type FindingGroup = {
   group_id: string;
@@ -22,11 +32,15 @@ type FindingGroup = {
   status: string;
   cve_id: string | null;
   cvss: number | null;
+  cwe: string | null;
+  evidence: string | null;
+  remediation: string | null;
   affected_url: string | null;
   target_name?: string | null;
   target_domain?: string | null;
   host_ip?: string | null;
   host_hostname?: string | null;
+  host_ports?: HostPort[] | null;
   occurrence_count: number;
   is_recurring: boolean;
   first_seen_at: string;
@@ -72,6 +86,7 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<FindingGroup[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<FindingGroup | null>(null);
   const [total, setTotal] = useState(initialFindings.length);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -135,11 +150,7 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
         {loading && <p className="py-4 text-center text-xs text-muted-dim">Loading findings…</p>}
         {!loading && rows.map((finding) => (
           <div key={finding.group_id} className="rounded-lg border border-white/5 bg-background/20 px-3 py-2">
-            <button type="button" onClick={() => setExpanded((current) => {
-              const next = new Set(current);
-              if (next.has(finding.group_id)) next.delete(finding.group_id); else next.add(finding.group_id);
-              return next;
-            })} className="flex w-full flex-wrap items-center gap-3 text-left">
+            <button type="button" onClick={() => setSelected(finding)} className="flex w-full flex-wrap items-center gap-3 text-left">
             <span className={`w-16 text-[10px] font-bold uppercase ${finding.severity === "Critical" ? "text-rose-300" : finding.severity === "High" ? "text-pink-300" : "text-amber-300"}`}>{finding.severity}</span>
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-medium">{finding.title}</p>
@@ -156,8 +167,14 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
             {finding.cvss !== null && <span className="text-[10px] text-muted-dim">CVSS {finding.cvss}</span>}
             <span className="text-[10px] text-muted-dim">{finding.occurrence_count} occurrence{finding.occurrence_count === 1 ? "" : "s"}</span>
             <span className={`text-[10px] ${finding.is_recurring ? "text-amber-300" : "text-muted-dim"}`}>{finding.is_recurring ? "Recurring" : "New"}</span>
-            <span className="text-[10px] text-muted-dim">{expanded.has(finding.group_id) ? "▲" : "▼"}</span>
+            <span className="text-[10px] text-muted-dim">View details</span>
             </button>
+            <button type="button" aria-label="Expand occurrences" onClick={() => setExpanded((current) => {
+              const next = new Set(current);
+              if (next.has(finding.group_id)) next.delete(finding.group_id);
+              else next.add(finding.group_id);
+              return next;
+            })} className="mt-1 text-[10px] text-muted-dim">{expanded.has(finding.group_id) ? "Hide occurrences ▲" : "Show occurrences ▼"}</button>
             <p className="mt-1 text-[10px] text-muted-dim">First seen {new Date(finding.first_seen_at).toLocaleString()} · Last seen {new Date(finding.last_seen_at).toLocaleString()}</p>
             {expanded.has(finding.group_id) && (
               <div className="mt-2 space-y-1 border-t border-white/5 pt-2">
@@ -176,6 +193,7 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
         ))}
         {!loading && !rows.length && <p className="py-8 text-center text-xs text-muted-dim">No findings match this view.</p>}
       </div>
+      {selected && <FindingDetail finding={selected} onClose={() => setSelected(null)} />}
       <div className="mt-4 flex items-center justify-between text-xs text-muted-dim">
         <span>Page {page} of {totalPages}</span>
         <div className="flex gap-2">
@@ -185,4 +203,69 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
       </div>
     </section>
   );
+}
+
+function formatDate(value: string | null | undefined) {
+  return value ? new Date(value).toLocaleString() : "Not recorded";
+}
+
+function FindingDetail({ finding, onClose }: { finding: FindingGroup; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/50" role="dialog" aria-modal="true" aria-label="Finding details" onClick={onClose}>
+      <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-white/10 bg-background p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Finding detail</p>
+            <h3 className="mt-1 text-lg font-semibold">{finding.title}</h3>
+            <p className="mt-1 text-xs text-muted-dim">{finding.cve_id ?? "No CVE"} · {finding.severity} · {finding.status}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded border border-white/10 px-2 py-1 text-xs text-muted">Close</button>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <Detail label="IP address" value={finding.host_ip} />
+          <Detail label="Hostname" value={finding.host_hostname} />
+          <Detail label="Domain" value={finding.target_domain ?? finding.target_name} />
+          <Detail label="Affected URL" value={finding.affected_url} />
+          <Detail label="CVSS" value={finding.cvss?.toString()} />
+          <Detail label="CWE" value={finding.cwe} />
+          <Detail label="First seen" value={formatDate(finding.first_seen_at)} />
+          <Detail label="Last seen" value={formatDate(finding.last_seen_at)} />
+        </div>
+        <DetailBlock label="Evidence" value={finding.evidence} />
+        <DetailBlock label="Remediation" value={finding.remediation} />
+        <section className="mt-5">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-dim">Related host services and ports</h4>
+          <div className="mt-2 space-y-1 text-xs text-muted">
+            {finding.host_ports?.length ? finding.host_ports.map((port) => (
+              <p key={`${port.protocol}-${port.port}`}>{port.port}/{port.protocol} · {port.service ?? port.product ?? "unknown"}{port.version ? ` ${port.version}` : ""}</p>
+            )) : <p>No port data recorded.</p>}
+          </div>
+        </section>
+        <section className="mt-5">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-dim">Status history</h4>
+          <div className="mt-2 space-y-2 border-l border-white/10 pl-3 text-xs text-muted">
+            {[...finding.occurrences].reverse().map((occurrence) => (
+              <p key={`${occurrence.id}-status`}><span className="font-medium text-foreground">{occurrence.status}</span> · {formatDate(occurrence.created_at)} · {occurrence.scan_input ?? "Unknown scan"}</p>
+            ))}
+          </div>
+        </section>
+        <section className="mt-5">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-dim">Previous occurrences</h4>
+          <div className="mt-2 space-y-2 text-xs text-muted">
+            {finding.occurrences.map((occurrence) => (
+              <p key={`${occurrence.id}-occurrence`}>{formatDate(occurrence.created_at)} · {occurrence.scan_input ?? "Unknown scan"} · {occurrence.scan_id ?? "No scan ID"}</p>
+            ))}
+          </div>
+        </section>
+      </aside>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string | null | undefined }) {
+  return <div><p className="text-[10px] uppercase tracking-wider text-muted-dim">{label}</p><p className="mt-1 break-words text-xs text-muted">{value ?? "Not recorded"}</p></div>;
+}
+
+function DetailBlock({ label, value }: { label: string; value: string | null | undefined }) {
+  return <section className="mt-5"><h4 className="text-xs font-semibold uppercase tracking-wider text-muted-dim">{label}</h4><p className="mt-2 whitespace-pre-wrap rounded border border-white/5 bg-background/30 p-3 text-xs leading-5 text-muted">{value ?? "Not recorded"}</p></section>;
 }

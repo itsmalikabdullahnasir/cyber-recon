@@ -29,6 +29,9 @@ as $$
       f.status,
       f.cve_id,
       f.cvss,
+      f.cwe,
+      f.evidence,
+      f.remediation,
       f.affected_url,
       f.created_at,
       f.scan_id,
@@ -39,6 +42,7 @@ as $$
       t.domain as target_domain,
       h.ip as host_ip,
       h.hostname as host_hostname,
+      h.ports as host_ports,
       s.input as scan_input,
       s.created_at as scan_created_at,
       coalesce(nullif(f.cve_id, ''), f.title) as finding_key
@@ -74,10 +78,14 @@ as $$
       ))[1] as severity,
       (array_agg(status order by created_at desc))[1] as status,
       max(cvss) as cvss,
+      (array_agg(cwe order by created_at desc))[1] as cwe,
+      (array_agg(evidence order by created_at desc))[1] as evidence,
+      (array_agg(remediation order by created_at desc))[1] as remediation,
       max(target_name) as target_name,
       max(target_domain) as target_domain,
       max(host_ip) as host_ip,
       max(host_hostname) as host_hostname,
+      (array_agg(host_ports order by created_at desc))[1] as host_ports,
       count(*)::integer as occurrence_count,
       count(*) > 1 as is_recurring,
       min(created_at) as first_seen_at,
@@ -90,6 +98,9 @@ as $$
         'source', source,
         'status', status,
         'cvss', cvss,
+        'cwe', cwe,
+        'evidence', evidence,
+        'remediation', remediation,
         'created_at', created_at
       ) order by created_at desc) as occurrences
     from filtered
