@@ -10,6 +10,8 @@ type WorkbenchFinding = Finding & {
   target_domain?: string | null;
   host_ip?: string | null;
   host_hostname?: string | null;
+  scan_input?: string | null;
+  scan_created_at?: string | null;
 };
 const PAGE_SIZE = 25;
 
@@ -23,6 +25,8 @@ function downloadRows(rows: WorkbenchFinding[], format: "json" | "csv") {
     affected_url: finding.affected_url,
     target: finding.target_name ?? finding.target_domain,
     host: finding.host_ip ?? finding.host_hostname,
+    scan: finding.scan_input,
+    scan_id: finding.scan_id,
     created_at: finding.created_at,
   }));
   const body = format === "json"
@@ -118,9 +122,12 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-medium">{finding.title}</p>
               <p className="mt-0.5 truncate text-[10px] text-muted-dim">
-                {finding.target_name ?? finding.target_domain ?? "Unknown target"}
+                Asset: {finding.host_ip ?? finding.host_hostname ?? "Unknown host"}
                 {" · "}
-                {finding.host_ip ?? finding.host_hostname ?? finding.affected_url ?? "Unknown host"}
+                {finding.target_domain ?? finding.target_name ?? "Unknown target"}
+              </p>
+              <p className="truncate text-[10px] text-muted-dim">
+                {finding.affected_url ? `URL: ${finding.affected_url}` : `Scan: ${finding.scan_input ?? "unknown"}${finding.scan_created_at ? ` · ${new Date(finding.scan_created_at).toLocaleString()}` : ""}`}
               </p>
             </div>
             {finding.cve_id && <span className="font-mono text-[10px] text-accent">{finding.cve_id}</span>}
