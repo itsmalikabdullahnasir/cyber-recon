@@ -53,12 +53,15 @@ export default async function TargetDetailPage({
     .eq("target_id", id)
     .order("created_at", { ascending: true });
 
-  const { data: scans } = await supabase
+  const [{ data: scans }, { data: screenshots }] = await Promise.all([
+    supabase
     .from("scans")
     .select("*")
     .eq("target_id", id)
     .order("created_at", { ascending: false })
-    .limit(10);
+    .limit(10),
+    supabase.from("web_screenshots").select("*").eq("target_id", id).order("captured_at", { ascending: false }).limit(30),
+  ]);
 
   return (
     <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 py-6 sm:px-6">
@@ -81,6 +84,7 @@ export default async function TargetDetailPage({
         subdomainCount={subdomainCount ?? 0}
         scopeEntries={scopeEntries ?? []}
         scans={scans ?? []}
+        screenshots={screenshots ?? []}
       />
     </div>
   );

@@ -43,6 +43,12 @@ class Settings:
     wafw00f_bin: str = field(default_factory=lambda: os.environ.get("WAFW00F_BIN", "/usr/bin/wafw00f"))
     nikto_bin: str = field(default_factory=lambda: os.environ.get("NIKTO_BIN", "/usr/bin/nikto"))
     testssl_bin: str = field(default_factory=lambda: os.environ.get("TESTSSL_BIN", "/home/ubuntu/testssl.sh/testssl.sh"))
+    # Chromium is deliberately opt-in: it may load page assets and should only
+    # be enabled for engagements where visual capture has been approved.
+    chromium_bin: str = field(default_factory=lambda: os.environ.get("CHROMIUM_BIN", "/usr/bin/chromium-browser"))
+    screenshot_profile_dir: str = field(default_factory=lambda: os.environ.get("SCREENSHOT_PROFILE_DIR", "").strip())
+    enable_screenshots: bool = field(default_factory=lambda: _bool("ENABLE_SCREENSHOTS", False))
+    screenshot_max_hosts: int = field(default_factory=lambda: _int("SCREENSHOT_MAX_HOSTS", 20))
     wordlist: str = field(default_factory=lambda: os.environ.get("WORDLIST", "/usr/share/seclists/Discovery/Web-Content/common.txt"))
 
     # Per-tool enable flags (so a missing binary doesn't fail every scan).
@@ -78,6 +84,7 @@ class Settings:
     testssl_timeout: int = field(default_factory=lambda: _int("TESTSSL_TIMEOUT", 900))
     feroxbuster_timeout: int = field(default_factory=lambda: _int("FEROXBUSTER_TIMEOUT", 1200))
     nikto_timeout: int = field(default_factory=lambda: _int("NIKTO_TIMEOUT", 900))
+    screenshot_timeout: int = field(default_factory=lambda: _int("SCREENSHOT_TIMEOUT", 45))
 
     # True: nmap only hits IPs that are themselves in a scope 'ip'/'cidr' entry.
     # False: an in-scope hostname also authorizes the IP it resolves to.

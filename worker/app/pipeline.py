@@ -25,6 +25,7 @@ from .runners import (
     nmap,
     nuclei,
     origin,
+    screenshot,
     subfinder,
     testssl,
     wafw00f,
@@ -262,6 +263,10 @@ class Pipeline:
             self._upsert_hosts({value: {"status": "Filtered"}})
         cdn = sum(1 for p in probes.values() if p["is_cdn"])
         self.stage("httpx", "done", live=len(probes), cdn=cdn, **({"warning": warning} if warning else {}))
+
+        # Visual evidence is collected only after HTTP probing has established a
+        # public, responsive URL. It is opt-in because a browser loads assets.
+        self._capture_screenshots(probes)
 
         # e0: origin discovery — if the site is CDN-fronted, look for the real
         # server leaking through non-proxied records (mail, ftp, dev, …).
@@ -534,6 +539,34 @@ class Pipeline:
                                                 "checked_by": "recon-worker", **cols})
             if rows:
                 self.hosts[ip] = rows[0]
+
+    def _capture_screenshots(self, probes: dict[str, dict]) -> None:
+        if not getattr(self.s, "enable_screenshots", False):
+            self.stage("screenshots", "skipped", detail="disabled (set ENABLE_SCREENSHOTS=true)")
+            return
+        maximum = getattr(self.s, "screenshot_max_hosts", 20)
+        self.stage("screenshots", "running", hosts=min(len(probes), maximum))
+        saved = errors = 0
+        for name, probe in list(sorted(probes.items()))[:maximum]:
+            url = probe.get("url")
+            if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+                continue
+            try:
+                image = screenshot.run(url, self.workdir, self._safe(name), probe.get("title"))
+                if not image:
+                    continue
+                sub = self.subs.get(name)
+                self.db.insert("web_screenshots", {
+                    "target_id": self.target_id, "subdomain_id": sub["id"] if sub else None,
+                    "scan_id": self.scan_id, "hostname": name, "url": url,
+                    "page_type": image["page_type"], "image_path": str(image["path"]),
+                    "byte_size": image["bytes"],
+                })
+                saved += 1
+            except Exception as e:
+                log.warning("screenshot %s: %s", name, e)
+                errors += 1
+        self.stage("screenshots", "done", captured=saved, failed=errors)
 
     # -- extra tool stages ---------------------------------------------------
     @staticmethod

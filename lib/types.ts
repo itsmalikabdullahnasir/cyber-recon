@@ -115,6 +115,12 @@ export interface Subdomain {
   last_seen: string | null;
 }
 
+export interface WebScreenshot {
+  id: string; target_id: string; subdomain_id: string | null; scan_id: string | null;
+  hostname: string; url: string; page_type: "login" | "dashboard" | "public";
+  image_path: string; byte_size: number | null; captured_at: string;
+}
+
 export interface PortInfo {
   port: number;
   protocol: string;

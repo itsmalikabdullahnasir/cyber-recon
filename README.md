@@ -128,6 +128,11 @@ SUPABASE_URL=https://YOUR-PROJECT.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
 RESULTS_DIR=/home/ubuntu/recon/results
 CVE_DB_PATH=/home/ubuntu/recon/cve.sqlite3
+# Optional visual evidence: install Chromium and enable only for approved scope.
+ENABLE_SCREENSHOTS=true
+CHROMIUM_BIN=/usr/bin/chromium-browser
+# Optional: dedicated Chromium profile containing an approved test login session.
+# SCREENSHOT_PROFILE_DIR=/home/ubuntu/recon/screenshot-profile
 ```
 
 Use the same `WORKER_SECRET` as `RECON_WORKER_SECRET` in the web app. The
@@ -155,6 +160,21 @@ be slow. Add the TLS module explicitly when it is needed.
 
 Active stages are scope-controlled. Add authorized domains, IPs, or CIDRs to
 the selected engagement group before running an active workflow.
+
+## Visual history and VM operations
+
+When `ENABLE_SCREENSHOTS=true`, the worker captures up to 20 successful,
+public HTTP probe results after `httpx`. Each image is retained on the worker,
+with metadata recorded in `web_screenshots`; the newest image and prior visual
+history appear on the target overview. To capture an approved authenticated
+test session, configure a dedicated Chromium profile with
+`SCREENSHOT_PROFILE_DIR`—never point it at a personal browser profile.
+
+Apply `20261109000100_screenshot_history.sql` before enabling this feature.
+The authenticated `/operations` page presents CPU, memory, disk, queue depth,
+tool versions, CVE freshness, and the last CVE-sync service result. Its support
+bundle intentionally excludes secrets, environment variables, scan data, and
+screenshots.
 
 ## Pipeline Builder
 

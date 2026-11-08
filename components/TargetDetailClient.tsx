@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { Target, Host, Finding, Subdomain, ScopeEntry, Scan } from "@/lib/types";
+import type { Target, Host, Finding, Subdomain, ScopeEntry, Scan, WebScreenshot } from "@/lib/types";
+import { VisualHistory } from "@/components/VisualHistory";
 import { ScopeManager } from "@/components/ScopeManager";
 import { ScanLauncher } from "@/components/ScanLauncher";
 import { ReconResults } from "@/components/ReconResults";
@@ -31,11 +32,11 @@ import {
 type Tab = "assets" | "hosts" | "findings" | "notes" | "overview" | "subdomains" | "shodan" | "cvss" | "recon" | "security" | "infra" | "vm";
 
 export function TargetDetailClient({
-  target, hosts, findings, subdomains, subdomainCount, scopeEntries, scans,
+  target, hosts, findings, subdomains, subdomainCount, scopeEntries, scans, screenshots,
 }: {
   target: Target; hosts: Host[]; findings: Finding[]; subdomains: Subdomain[];
   subdomainCount: number;
-  scopeEntries: ScopeEntry[]; scans: Scan[];
+  scopeEntries: ScopeEntry[]; scans: Scan[]; screenshots: WebScreenshot[];
 }) {
   const [tab, setTab] = useState<Tab>("overview");
   const targetDomain = target.domain?.trim() ?? "";
@@ -149,6 +150,7 @@ export function TargetDetailClient({
       </div>
 
       {tab === "overview" && (
+        <>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <div className="rounded-xl border border-white/5 bg-surface p-4 transition-all hover:border-white/8">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Subdomains</p>
@@ -183,6 +185,8 @@ export function TargetDetailClient({
             </div>
           )}
         </div>
+        <VisualHistory rows={screenshots} />
+        </>
       )}
 
       {tab === "vm" && (

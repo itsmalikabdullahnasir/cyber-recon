@@ -13,12 +13,15 @@ import hmac
 import logging
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from .config import get_settings
+from .diagnostics import bundle, snapshot
 from .jobs import Poller, pending_count, recover_stale
 from .modules.registry import registry_json
 from .supa import Supabase
@@ -66,6 +69,32 @@ def health() -> dict:
 @app.get("/queue", dependencies=[Depends(require_secret)])
 def queue() -> dict:
     return {"pending": pending_count(), "current": poller.current if poller else None}
+
+
+@app.get("/diagnostics", dependencies=[Depends(require_secret)])
+def diagnostics() -> dict:
+    return snapshot()
+
+
+@app.get("/diagnostics/bundle", dependencies=[Depends(require_secret)])
+def diagnostics_bundle() -> Response:
+    return Response(bundle(), media_type="application/zip", headers={"Content-Disposition": "attachment; filename=recon-vm-diagnostics.zip"})
+
+
+@app.get("/screenshots/{screenshot_id}", dependencies=[Depends(require_secret)])
+def get_screenshot(screenshot_id: uuid.UUID) -> FileResponse:
+    db = Supabase()
+    try:
+        rows = db.select("web_screenshots", {"id": f"eq.{screenshot_id}"}, "image_path")
+    finally:
+        db.close()
+    if not rows:
+        raise HTTPException(status_code=404, detail="screenshot not found")
+    path = Path(str(rows[0].get("image_path") or "")).resolve()
+    root = get_settings().results_dir.resolve()
+    if root not in path.parents or path.suffix.lower() != ".png" or not path.is_file():
+        raise HTTPException(status_code=404, detail="screenshot unavailable")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=300"})
 
 
 @app.get("/modules", dependencies=[Depends(require_secret)])
