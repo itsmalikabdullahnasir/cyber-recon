@@ -31,14 +31,14 @@ as $$
     select f.*
     from public.findings f
     cross join params p
-    where (p.severity_filter is null or f.severity = p.severity_filter)
+    where (p.severity_filter is null or f.severity::text = p.severity_filter)
       and (not coalesce(p_unresolved_only, true)
         or f.status not in ('Fixed', 'False Positive'))
       and (p.search_text is null
         or f.title ilike '%' || p.search_text || '%'
         or coalesce(f.cve_id, '') ilike '%' || p.search_text || '%'
         or coalesce(f.affected_url, '') ilike '%' || p.search_text || '%'
-        or f.severity ilike '%' || p.search_text || '%')
+        or f.severity::text ilike '%' || p.search_text || '%')
   ),
   page_rows as (
     select f.*
