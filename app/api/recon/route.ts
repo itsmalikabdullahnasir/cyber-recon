@@ -29,6 +29,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
+  // 1b. Rate limiting: max 5 scans created per minute per user to protect worker capacity
+  const oneMinuteAgo = new Date(Date.now() - 60000).toISOString();
+  const { count: recentScanCount } = await supabase
+    .from("scans")
+    .select("id", { count: "exact", head: true })
+    .eq("requested_by", user.id)
+    .gte("created_at", oneMinuteAgo);
+
+  if (recentScanCount !== null && recentScanCount >= 5) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded: maximum 5 scans per minute per user. Please wait before queuing more scans." },
+      { status: 429 }
+    );
+  }
+
   // 2. Parse and validate the request.
   let body: { target_id?: string; target?: string; mode?: Mode };
   try {
@@ -105,6 +120,15 @@ export async function POST(request: Request) {
   if (scanErr || !scan) {
     return NextResponse.json({ error: scanErr?.message ?? "Could not create scan" }, { status: 500 });
   }
+
+  // Audit log scan creation
+  void supabase.from("audit_logs").insert({
+    actor_id: user.id,
+    actor_email: user.email,
+    action: "create_scan",
+    target_id: target.id,
+    metadata: { scan_id: scan.id, input: parsed.value, mode },
+  });
 
   // 7. Hand off to the worker. It replies immediately and scans in the background.
   try {

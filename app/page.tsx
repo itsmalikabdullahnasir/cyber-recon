@@ -239,6 +239,8 @@ export default async function DashboardPage() {
           scanActivity={scanActivity}
           scanActivity24h={scanActivity24h}
           userName={user.email ?? "operator"}
+          deploymentHealth={healthData ?? null}
+          dataQuality={qualityData ?? null}
         />
       </div>
     </>

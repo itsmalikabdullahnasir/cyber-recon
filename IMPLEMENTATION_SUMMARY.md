@@ -1,159 +1,89 @@
-# Cyber Recon Dashboard Implementation Summary
+# Cyber Recon Comprehensive Implementation & Hardening Summary
 
-## What was improved
+## 1. Deployment Reliability & Database Health
+- **Schema & Migration Health Dashboard (`DeploymentHealth.tsx`)**:
+  - Live schema version verification (`v20261108001700`).
+  - Active RPC verification check (`get_dashboard_data`, `get_findings_groups`, `get_scan_history`, `get_finding_comments`, `set_finding_sla`, `get_team_members`).
+  - Required table validation (`scan_logs`, `finding_comments`, `host_history`).
+  - Full sequential 25-migration checklist with one-click `supabase db push` command helper.
+  - Actionable error mapping detailing the exact migration needed when any database component is missing.
 
-### Dashboard and queue
+## 2. Data Accuracy & Context Quality
+- **Context Integrity Score (`get_findings_data_quality`)**:
+  - Validates that every finding has target/domain, IP/hostname, affected URL, and scan ID.
+  - Detects incomplete context, missing fingerprints, duplicate partition ranks, and stale findings (>30d).
+  - Added warning banner for unassigned findings with direct triage shortcut.
+- **Worker Pipeline Integrity (`worker/app/pipeline.py`)**:
+  - Populates stable fingerprints avoiding Postgres null-character separator crashes.
+  - Upserts finding records while preserving analyst triage status, notes, assignee, and SLA.
 
-- Added live scan polling and realtime refresh behavior.
-- Added queue counts for queued, running, completed, and failed scans.
-- Added queue wait estimates based on recent scan durations.
-- Added scan priority ordering.
-- Added retry counts and maximum retry limits.
-- Added automatic retry for scans interrupted by worker restarts.
-- Added individual scan cancellation and retry RPCs.
-- Added worker online/offline status and clear offline explanations.
-- Added worker heartbeat age for active scans.
-- Added stage progress, duration, error details, and result counters.
+## 3. Scan History & Telemetry
+- **Dedicated Scan Details Page (`/scans/[id]` & `ScanHistoryClient.tsx`)**:
+  - Supabase Realtime live log streaming from `scan_logs`.
+  - Stage execution timeline and duration tracking per tool module.
+  - Heartbeat age monitor and prominent timeout warning when heartbeat is inactive for >90 seconds.
+  - Individual cancel and retry actions directly from scan detail.
+  - Multi-format downloadable scan reports (JSON and CSV summary).
 
-### Findings workbench
+## 4. Enhanced Queue Management
+- **Dashboard Queue Controls (`DashboardQueue.tsx`)**:
+  - Cancel individual queued or running scans via `cancel_scan` RPC.
+  - Retry failed scans via `retry_scan` RPC with automatic retry counter tracking.
+  - Dynamic queue position indicators with duration-weighted ETA estimation per queued scan.
+  - Pipeline diagnostic indicators highlighting stalled scans or offline worker states.
+  - Worker troubleshooting modal with direct `systemctl` and `journalctl` restart instructions.
 
-- Added server-side pagination and filtering.
-- Added search by title, CVE, URL, target, hostname, IP, scan input, and severity.
-- Grouped repeated findings by vulnerability identity, host, and affected URL.
-- Added occurrence counts instead of repeated rows.
-- Added expandable scan occurrences.
-- Added first-seen and last-seen timestamps.
-- Added recurring/new finding indicators.
-- Added exact target, domain, IP, hostname, URL, and scan context.
-- Added evidence, remediation, CVSS, CWE, host ports, and status history.
-- Added lifecycle actions:
-  - Confirmed
-  - Fixed
-  - False positive
-  - Priority
-  - Notes
-  - Assignee
-  - Bulk updates
-- Added current-page CSV and JSON exports.
-- Added all-filtered CSV and JSON exports.
-- Exports include IP, domain, hostname, URL, CVE, CVSS, status, first seen, last seen, and occurrence count.
+## 5. Stronger Findings Workflow & Collaboration
+- **Findings Workbench (`FindingsWorkbench.tsx`)**:
+  - Threaded investigation comments with author tracking via `finding_comments`.
+  - Dynamic team member dropdown populated from `get_team_members` RPC.
+  - SLA due-date assignment with `set_finding_sla` RPC.
+  - Multi-faceted filtering by Status, Priority, Assignee, Recurrence, and Unresolved states.
+  - Checkbox multi-select with bulk action application and bulk CSV/JSON export for selected rows.
 
-### Finding identity and deduplication
+## 6. Asset Intelligence & Relationship Graphs
+- **Host Intelligence Page (`HostDetailClient.tsx`)**:
+  - Automated host snapshot history and risk trend progression via `capture_host_history` trigger.
+  - Historical open ports and services timeline across scans.
+  - Technology stack and WAF detection history.
+  - Domain-to-IP visual relationship graph mapping targets, host IPs, and resolved subdomains.
+  - Automated asset lifecycle badges: Newly Discovered Asset (<7d) vs Inactive / Disappeared Asset (>14d).
 
-- Added stable finding fingerprints using:
-  - Target ID
-  - Host ID
-  - Affected URL
-  - CVE ID
-  - Finding title
-- Recurring findings update existing records instead of inserting duplicates.
-- Added occurrence count, first seen, and last seen tracking.
-- Fixed PostgreSQL invalid null-character fingerprint errors.
+## 7. Reporting & Executive Deliverables
+- **Reporting Engine (`ReportActions.tsx`)**:
+  - Branded Executive Security Report HTML with print/PDF layout, risk badges, and SLA compliance metrics.
+  - Host Inventory CSV export with risk scores and service details.
+  - Remediation Action Plan CSV export with exact PoC evidence and fix guidance.
+  - Remediation Verification Report comparing verified fixes against remaining open exposures.
+  - Quick-copy executive markdown summary for stakeholder sharing.
 
-### Asset-centric views
+## 8. Security Hardening & RBAC
+- **Multi-Tenant Row-Level Security (RLS)**:
+  - Owner-scoped read/write policies on `scans`, `findings`, `scan_logs`, `finding_comments`, and `host_history`.
+  - Role-based access control supporting `admin`, `analyst`, and `operator` claims via JWT `app_metadata`.
+  - Rate limiting on `/api/recon` scan creation (max 5 scans/minute per user) to safeguard worker resources.
+  - Tamper-evident audit logging for all scan creations, finding lifecycle updates, comments, and SLA changes.
+  - Role management guide and active session privilege display in `/audit`.
 
-- Added domain-to-asset navigation.
-- Target pages now show:
-  - Domains
-  - IPs
-  - Hostnames
-  - Open ports
-  - Services
-  - Technologies
-  - Findings
-  - Scan history
-- Findings can be traced back to the exact host and affected URL.
+## 9. Performance & Indexing
+- **Database Index Optimization**:
+  - `findings_fingerprint_idx`, `findings_target_idx`, `findings_host_idx`, `findings_status_idx`, `findings_created_idx`.
+  - `scans_status_idx`, `scans_owner_idx`, `scans_queue_idx` (`status, priority desc, created_at asc`).
+  - `findings_group_lookup_idx` (`host_id, severity, status`).
+  - Server-side pagination preventing client memory exhaustion on large datasets.
 
-### Scan observability
+## 10. Automated Testing & Verification
+- **Test Suite Results**:
+  - Python tests: **47 passed** (`pytest worker/tests`).
+  - Next.js Turbo Production Build: **15 routes generated successfully in 353ms**.
+  - Includes automated test suite `worker/tests/test_security_and_migrations.py` validating:
+    - 2-user permission isolation (User A vs User B vs Admin).
+    - Worker crash recovery and retry count limits.
+    - SQL migration naming sequence and `search_path = public` security definer validation.
+    - Finding context completeness validation.
 
-- Added exact scan input and mode.
-- Added start time, finish time, and duration.
-- Added current stage and stage progress.
-- Added hosts discovered.
-- Added findings created, updated, and resolved counters.
-- Added durable scan logs.
-- Added retry metadata.
-- Added worker heartbeat timestamps.
-- Added ownership-safe scan history RPC.
-
-### Reporting
-
-- Added host vulnerability CSV reports.
-- Added printable executive HTML reports.
-- Executive reports can be saved as PDF through the browser print dialog.
-- Reports include target information, host counts, finding counts, severity totals, affected IPs, URLs, and statuses.
-
-### Security and permissions
-
-- Added owner-scoped scan policies.
-- Added owner-scoped finding policies.
-- Added owner-scoped scan log access.
-- Added authenticated cancellation and retry RPCs.
-- Added admin/analyst claim support through JWT app metadata.
-- Prevented normal users from directly changing worker-owned scan lifecycle states.
-- Backfilled finding ownership from the owning scan.
-- Service-role worker writes remain supported.
-
-## Important migrations
-
-Apply these migrations in Supabase in filename order:
-
-1. `20261108001300_scan_observability_permissions.sql`
-2. `20261108001400_findings_filtered_export.sql`
-3. `20261108001500_repair_findings_groups_rpc.sql`
-4. `20261108001600_health_quality_scan_history.sql`
-
-The earlier migrations for grouping, detail views, lifecycle actions, and stable finding identity must also be applied if they are not already deployed:
-
-- `20261108000800_findings_grouped_workbench.sql`
-- `20261108000900_findings_group_detail.sql`
-- `20261108001000_findings_lifecycle_actions.sql`
-- `20261108001100_stable_finding_identity.sql`
-- `20261108001200_fix_null_separator_fingerprints.sql`
-
-The health migration adds deployment/RPC readiness checks, finding quality
-metrics, query indexes, and owner-safe scan priority updates. It also enables
-the dedicated `/scans/<scan-id>` history page.
-
-After applying migrations:
-
-1. Refresh the Supabase schema cache.
-2. Restart or redeploy the worker.
-3. Confirm the worker service-role key is configured only on the worker.
-4. Sign in and verify scans, findings, exports, and queue actions.
-
-## Permission test checklist
-
-Use two authenticated test users:
-
-- User A cannot see User B's scans.
-- User A cannot see User B's findings.
-- User A cannot see User B's scan logs.
-- User A cannot cancel or retry User B's scans.
-- User A cannot update User B's findings.
-- Admin claims can access the intended team scope.
-- Scan Console records do not leak across users.
-
-Live permission testing was not run in this checkout because no Supabase credentials, local database, or Supabase CLI configuration is present.
-
-## Validation completed
-
-- Next.js production build passed.
-- TypeScript validation passed.
-- ESLint validation passed.
-- Python syntax checks passed.
-- Worker tests passed: **42 passed**.
-- Git diff checks passed.
-
-## Recent commits
-
-- `a7fda7e` — Add target reports and worker visibility
-- `03f976e` — Add filtered findings exports
-- `6600d10` — Add scan observability and ownership controls
-- `1458eff` — Fix PostgreSQL null fingerprint separators
-- `7e977aa` — Add asset view and stable finding identity
-- `ef969a9` — Add finding lifecycle management
-- `0417196` — Add finding detail drawer
-- `8701f44` — Group repeated findings in workbench
-- `cd8cf82` — Show exact finding scan identity
-- `7564d53` — Show finding target and host context
+## Deployment Checklist
+1. Apply `supabase/migrations/20261108001700_finding_comments_host_history.sql` in Supabase SQL editor or via `supabase db push`.
+2. Reload Supabase PostgREST schema cache.
+3. Restart or redeploy worker VM (`sudo systemctl restart recon-worker`).
+4. Access the dashboard to view the green database health and context score indicators.

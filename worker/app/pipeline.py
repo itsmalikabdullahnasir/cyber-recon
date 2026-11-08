@@ -8,6 +8,7 @@ full:    passive + [scope gate] nmap -> CVE on nmap versions -> nuclei
 import hashlib
 import logging
 import re
+import threading
 from collections import defaultdict
 from datetime import date, datetime
 from pathlib import Path
@@ -143,8 +144,23 @@ class Pipeline:
         )
         self.db.notify(self.email, f"🛰️ Scan started — {self.scan['input']}",
                        f"{self.mode} scan running on the recon VM", self.target_id)
+        stop_heartbeat = threading.Event()
+
+        def _heartbeat_ticker():
+            while not stop_heartbeat.wait(15):
+                try:
+                    self.db.update("scans", {"id": f"eq.{self.scan_id}"}, {"worker_heartbeat_at": now_iso()})
+                except Exception:
+                    pass
+
+        hb_thread = threading.Thread(target=_heartbeat_ticker, daemon=True, name=f"heartbeat-{self.scan_id}")
+        hb_thread.start()
+
         try:
-            self._run()
+            try:
+                self._run()
+            finally:
+                stop_heartbeat.set()
         except ScanCancelled:
             log.info("scan %s cancelled by user", self.scan_id)
             self.db.update("scans", {"id": f"eq.{self.scan_id}"},
