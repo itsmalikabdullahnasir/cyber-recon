@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+export const runtime = "nodejs";
+export const maxDuration = 30;
+
 const SHODAN_API_KEY = process.env.SHODAN_API_KEY;
 
 async function tryShodanHost(ip: string) {
@@ -54,13 +57,17 @@ async function lookupCVEsForServices(services: { product: string; version: strin
   }
 
   const results: Record<string, any[]> = {};
-  // Process up to 5 queries to stay within rate limits
-  for (const q of queries.slice(0, 5)) {
+  // Limit to top 2 distinct services to stay well within serverless timeouts
+  const topQueries = queries.slice(0, 2);
+  for (let i = 0; i < topQueries.length; i++) {
+    const q = topQueries[i];
     try {
       const cves = await searchNVD(q);
       if (cves.length > 0) results[q] = cves;
-      // Small delay to respect NVD rate limits (~5 req/30s without key)
-      await new Promise((r) => setTimeout(r, 6500));
+      // Delay briefly only between queries
+      if (i < topQueries.length - 1) {
+        await new Promise((r) => setTimeout(r, 1200));
+      }
     } catch {
       // Skip failed queries
     }
