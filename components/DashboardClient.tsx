@@ -11,6 +11,8 @@ import { scanRiskScore } from "@/lib/risk";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { AreaChart } from "@/components/charts";
+import { DashboardQueue } from "@/components/DashboardQueue";
+import { FindingsWorkbench } from "@/components/FindingsWorkbench";
 import dynamic from "next/dynamic";
 
 const DashboardCharts = dynamic(
@@ -30,7 +32,6 @@ const SEVERITY_COLORS: Record<string, string> = {
   Info: "#5c5775",
 };
 type MetricKey = "targets" | "hosts" | "liveHosts" | "findings" | "criticalFindings" | "scans" | "activeScans";
-type MetricState = { value: number | null; error: string | null };
 
 function NowScanning({ scan, queue, loading, error, onRetry }: {
   scan: Scan | null;
@@ -90,6 +91,8 @@ export function DashboardClient({
   countErrors: initialCountErrors,
   runningScanError: runningScanErrorInit,
   scanSeries: scanSeriesInit,
+  scanActivity: scanActivityInit,
+  scanActivity24h: scanActivity24hInit,
   userName,
 }: {
   targets: Target[];
@@ -112,6 +115,8 @@ export function DashboardClient({
   countErrors: Record<MetricKey, string | null> & { severity: Record<string, string | null> };
   runningScanError: string | null;
   scanSeries?: number[];
+  scanActivity: { date: string; queued: number; running: number; done: number; failed: number }[];
+  scanActivity24h: { date: string; queued: number; running: number; done: number; failed: number }[];
   userName: string;
 }) {
   // Hide the hidden Scan Console bucket (works even before migration 2 adds the column).
@@ -123,7 +128,7 @@ export function DashboardClient({
   const [scanSort, setScanSort] = useState("date-desc");
   const [visible, setVisible] = useState(20);
   const [visibleScanResults, setVisibleScanResults] = useState(20);
-  const [findings, setFindings] = useState<Finding[]>(findingsInit);
+  const [findings] = useState<Finding[]>(findingsInit);
   const [scans, setScans] = useState<Scan[]>(scansInit);
   const [runningScan, setRunningScan] = useState<Scan | null>(runningScanInit);
   const [queueState, setQueueState] = useState(queue);
@@ -133,6 +138,10 @@ export function DashboardClient({
   const [runningScanError, setRunningScanError] = useState(runningScanErrorInit);
   const [runningScanLoading, setRunningScanLoading] = useState(false);
   const [scanSeriesOverride, setScanSeriesOverride] = useState<number[] | null>(scanSeriesInit ?? null);
+  const [scanActivity, setScanActivity] = useState(scanActivityInit);
+  const [scanActivity24h, setScanActivity24h] = useState(scanActivity24hInit);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [dataError, setDataError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<{ id: string; text: string; kind: "ok" | "err" }[]>([]);
   const scanStatus = useRef<Map<string, string>>(new Map(scansInit.map((s) => [s.id, s.status])));
   const router = useRouter();
@@ -220,6 +229,7 @@ export function DashboardClient({
       const supabase = createClient();
       const { data, error } = await supabase.rpc("get_dashboard_data");
       if (error || !data) {
+        setDataError(error?.message ?? "The database returned no dashboard data");
         setRunningScanError(error?.message ?? "The database returned no dashboard data");
         setRunningScanLoading(false);
         return;
@@ -229,6 +239,8 @@ export function DashboardClient({
         running_scan: Scan | null;
         queue: typeof queue;
         scan_series: number[];
+        scan_activity?: typeof scanActivityInit;
+        scan_activity_24h?: typeof scanActivity24hInit;
         totals: Parameters<typeof applyDashboardTotals>[0];
       };
       setScans(dashboard.scans);
@@ -239,8 +251,12 @@ export function DashboardClient({
         failed: 0,
       });
       setScanSeriesOverride(dashboard.scan_series);
+      setScanActivity(dashboard.scan_activity ?? scanActivityInit);
+      setScanActivity24h(dashboard.scan_activity_24h ?? scanActivity24hInit);
       setRunningScan(dashboard.running_scan);
       setRunningScanError(null);
+      setDataError(null);
+      setLastUpdated(new Date().toISOString());
       applyDashboardTotals(dashboard.totals);
       setRunningScanLoading(false);
     }, 1500);
@@ -248,7 +264,6 @@ export function DashboardClient({
   useEffect(() => {
     scheduleRefreshRef.current = scheduleRefresh;
     // The ref keeps the polling callback current without recreating the timer.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scheduleRefresh]);
 
   useEffect(() => {
@@ -285,7 +300,7 @@ export function DashboardClient({
           scheduleRefresh();
         }
       })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "findings" }, (payload) => {
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "findings" }, () => {
         if (runningScanRef.current) scheduleRefresh();
       })
       .subscribe();
@@ -411,6 +426,9 @@ export function DashboardClient({
   }, [scans, debouncedSearch, scanSort, scanRiskById, findingsByScan, targetNameById]);
 
   useEffect(() => {
+    // This resets pagination when filters change; it intentionally synchronizes
+    // the visible result window with the selected filters.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVisible(20);
     setVisibleScanResults(20);
   }, [search, filter, risk]);
@@ -437,8 +455,14 @@ export function DashboardClient({
             </p>
           </div>
 
-          <EncryptButton text="Launch a scan" onClick={() => router.push("/console")} />
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => scheduleRefresh()} className="rounded-lg border border-white/10 px-3 py-2 text-[11px] text-muted hover:text-foreground">Refresh data</button>
+            <EncryptButton text="Launch a scan" onClick={() => router.push("/console")} />
+          </div>
         </div>
+        <p className="relative mt-3 text-[10px] text-muted-dim">
+          {dataError ? `Data refresh failed: ${dataError}` : lastUpdated ? `Last updated ${timeAgo(lastUpdated)}` : "Loading live data…"}
+        </p>
       </div>
       <NowScanning
         scan={runningScan}
@@ -470,6 +494,7 @@ export function DashboardClient({
           </div>
         ))}
       </div>
+      <DashboardQueue queue={queueState} scans={scans} onRefresh={() => scheduleRefresh()} />
 
       {/* KPI row */}
       <div className="animate-fade-in grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -483,10 +508,13 @@ export function DashboardClient({
       <DashboardCharts
         severityData={severityData}
         findings={counts.findings}
-        scanSeries={scanSeries}
         scanCount={counts.scans}
         riskScore={riskScore}
+        activity={scanActivity}
+        activity24h={scanActivity24h}
       />
+
+      <FindingsWorkbench findings={findings} />
 
       {/* Live scan feed */}
       {scans.length > 0 && (

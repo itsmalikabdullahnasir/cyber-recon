@@ -18,6 +18,8 @@ type DashboardData = {
     failed: number;
   };
   scan_series: number[];
+  scan_activity?: { date: string; queued: number; running: number; done: number; failed: number }[];
+  scan_activity_24h?: { date: string; queued: number; running: number; done: number; failed: number }[];
   totals: {
     targets: number;
     hosts: number;
@@ -75,6 +77,8 @@ export default async function DashboardPage() {
             }}
             runningScanError={null}
             scanSeries={dashboard.scan_series}
+            scanActivity={dashboard.scan_activity ?? []}
+            scanActivity24h={dashboard.scan_activity_24h ?? []}
             userName={user.email ?? "operator"}
           />
         </div>
@@ -138,6 +142,31 @@ export default async function DashboardPage() {
   ]);
 
   const scanSeries = new Array(7).fill(0);
+  const scanActivity = Array.from({ length: 30 }, (_, index) => {
+    // eslint-disable-next-line react-hooks/purity
+    const date = new Date(Date.now() - (29 - index) * 86400000).toISOString().slice(0, 10);
+    const dayScans = (scansResult.data ?? []).filter((scan) => scan.created_at.slice(0, 10) === date);
+    return {
+      date,
+      queued: dayScans.filter((scan) => scan.status === "queued").length,
+      running: dayScans.filter((scan) => scan.status === "running").length,
+      done: dayScans.filter((scan) => scan.status === "done").length,
+      failed: dayScans.filter((scan) => scan.status === "failed").length,
+    };
+  });
+  const scanActivity24h = Array.from({ length: 24 }, (_, index) => {
+    // eslint-disable-next-line react-hooks/purity
+    const hour = new Date(Date.now() - (23 - index) * 3600000);
+    const key = hour.toISOString().slice(0, 13);
+    const hourScans = (scansResult.data ?? []).filter((scan) => scan.created_at.slice(0, 13) === key);
+    return {
+      date: hour.toISOString(),
+      queued: hourScans.filter((scan) => scan.status === "queued").length,
+      running: hourScans.filter((scan) => scan.status === "running").length,
+      done: hourScans.filter((scan) => scan.status === "done").length,
+      failed: hourScans.filter((scan) => scan.status === "failed").length,
+    };
+  });
   // The server-rendered fallback is only used when the RPC migration is absent.
   // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
@@ -199,6 +228,8 @@ export default async function DashboardPage() {
           }}
           runningScanError={runningScanResult.error?.message ?? null}
           scanSeries={scanSeries}
+          scanActivity={scanActivity}
+          scanActivity24h={scanActivity24h}
           userName={user.email ?? "operator"}
         />
       </div>

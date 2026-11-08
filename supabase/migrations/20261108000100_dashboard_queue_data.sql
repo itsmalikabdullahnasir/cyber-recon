@@ -84,6 +84,26 @@ as $$
         ) as days(day)
       ) daily
     ), '[]'::jsonb),
+    'scan_activity', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'date', day::date,
+        'queued', (select count(*) from public.scans s where s.created_at >= day and s.created_at < day + interval '1 day' and s.status = 'queued'),
+        'running', (select count(*) from public.scans s where s.created_at >= day and s.created_at < day + interval '1 day' and s.status = 'running'),
+        'done', (select count(*) from public.scans s where s.created_at >= day and s.created_at < day + interval '1 day' and s.status = 'done'),
+        'failed', (select count(*) from public.scans s where s.created_at >= day and s.created_at < day + interval '1 day' and s.status = 'failed')
+      ) order by day)
+      from generate_series(current_date - interval '29 days', current_date, interval '1 day') as days(day)
+    ), '[]'::jsonb),
+    'scan_activity_24h', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'date', hour,
+        'queued', (select count(*) from public.scans s where s.created_at >= hour and s.created_at < hour + interval '1 hour' and s.status = 'queued'),
+        'running', (select count(*) from public.scans s where s.created_at >= hour and s.created_at < hour + interval '1 hour' and s.status = 'running'),
+        'done', (select count(*) from public.scans s where s.created_at >= hour and s.created_at < hour + interval '1 hour' and s.status = 'done'),
+        'failed', (select count(*) from public.scans s where s.created_at >= hour and s.created_at < hour + interval '1 hour' and s.status = 'failed')
+      ) order by hour)
+      from generate_series(date_trunc('hour', now()) - interval '23 hours', date_trunc('hour', now()), interval '1 hour') as hours(hour)
+    ), '[]'::jsonb),
     'totals', jsonb_build_object(
       'targets', (select count(*) from public.targets where is_console = false),
       'hosts', (select count(*) from public.hosts),
@@ -104,3 +124,7 @@ as $$
 $$;
 
 grant execute on function public.get_dashboard_data() to authenticated;
+
+drop policy if exists "own delete scans" on public.scans;
+create policy "own delete scans" on public.scans
+  for delete using (auth.uid() = requested_by);

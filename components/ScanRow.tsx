@@ -105,6 +105,7 @@ export function ScanRow({
   useEffect(() => {
     if (!openStage || details) return;
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoadingDetails(true);
     const supabase = createClient();
     Promise.all([
@@ -164,10 +165,14 @@ export function ScanRow({
   // A user-cancelled scan is stored as failed with this error. Show it as its
   // own "stopped" state so the record reads clearly (not a real failure).
   const cancelled = scan.status === "failed" && /cancel|stopped/i.test(scan.error ?? "");
-  const displayStatus = cancelled ? "stopped" : scan.status;
+  const stageTimes = Object.values(stages).map((stage) => new Date(stage.at).getTime()).filter(Number.isFinite);
+  const lastUpdate = stageTimes.length ? Math.max(...stageTimes) : new Date(scan.started_at ?? scan.created_at).getTime();
+  // eslint-disable-next-line react-hooks/purity
+  const stalled = running && Date.now() - lastUpdate > 30 * 60 * 1000;
+  const displayStatus = cancelled ? "stopped" : stalled ? "stalled" : scan.status;
   const duration = scanDuration(scan);
   const stageKeys = STAGE_ORDER.filter((k) => stages[k]);
-  const doneStages = stageKeys.filter((k) => ["done", "skipped", "refused"].includes(stages[k].status)).length;
+  const doneStages = STAGE_ORDER.filter((k) => ["done", "skipped", "refused"].includes(stages[k]?.status)).length;
   const currentLabel = scan.stage ? STAGE_LABELS[scan.stage] ?? scan.stage : null;
   // Per-scan risk score (hosts + findings), shown only when the caller supplied
   // this scan's rows (dashboard does; console list doesn't).
@@ -196,12 +201,15 @@ export function ScanRow({
             <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
             <path className="opacity-90" d="M12 2a10 10 0 0110 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
           </svg>
-          <span className="text-[11px] font-medium text-amber-200">Now: {currentLabel}</span>
+          <span className="text-[11px] font-medium text-amber-200">Now: {currentLabel}{stalled ? " · no update for 30m" : ""}</span>
           {stageKeys.length > 0 && (
-            <span className="ml-auto text-[10px] text-amber-300/70">stage {doneStages}/{stageKeys.length}</span>
+          <span className="ml-auto text-[10px] text-amber-300/70">stage {doneStages}/{STAGE_ORDER.length}</span>
           )}
         </div>
       )}
+      <p className="mt-2 text-[10px] text-muted-dim">
+        Last update: {Number.isFinite(lastUpdate) ? new Date(lastUpdate).toLocaleString() : "unknown"}
+      </p>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span
           className={`rounded border px-2 py-1 text-[10px] font-semibold uppercase ${
@@ -221,6 +229,8 @@ export function ScanRow({
                 ? "text-zinc-400"
                 : displayStatus === "failed"
                   ? "text-rose-400"
+                    : displayStatus === "stalled"
+                      ? "text-orange-300"
                   : displayStatus === "running"
                     ? "text-amber-400"
                     : "text-indigo-400"
