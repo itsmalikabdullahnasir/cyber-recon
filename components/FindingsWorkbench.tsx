@@ -87,6 +87,12 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
   const [rows, setRows] = useState<FindingGroup[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<FindingGroup | null>(null);
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [actionPriority, setActionPriority] = useState("None");
+  const [actionNotes, setActionNotes] = useState("");
+  const [actionAssignee, setActionAssignee] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
   const [total, setTotal] = useState(initialFindings.length);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +125,22 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
   }, [load]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const action = async (groupIds: string[]) => {
+    setActionLoading(true);
+    setError(null);
+    const { error: actionError } = await createClient().rpc(groupIds.length === 1 ? "update_findings_group" : "update_findings_groups", groupIds.length === 1 ? {
+      p_group_id: groupIds[0], p_status: actionStatus, p_priority: actionPriority, p_notes: actionNotes, p_assigned_to: actionAssignee,
+    } : {
+      p_group_ids: groupIds, p_status: actionStatus, p_priority: actionPriority, p_notes: actionNotes, p_assigned_to: actionAssignee,
+    });
+    if (actionError) setError(actionError.message);
+    else {
+      setSelected(null);
+      setSelectedGroups(new Set());
+      await load();
+    }
+    setActionLoading(false);
+  };
 
   return (
     <section className="card p-5">
@@ -145,11 +167,33 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
           <input type="checkbox" checked={unresolvedOnly} onChange={(event) => { setUnresolvedOnly(event.target.checked); setPage(1); }} /> Unresolved
         </label>
       </div>
+      {selectedGroups.size > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-accent/20 bg-accent/5 p-2 text-xs">
+          <span className="text-muted">{selectedGroups.size} selected</span>
+          <select value={actionStatus ?? ""} onChange={(event) => setActionStatus(event.target.value || null)} className="rounded border border-white/10 bg-background px-2 py-1">
+            <option value="">Set status</option><option>Confirmed</option><option>Fixed</option><option>False Positive</option><option>New</option>
+          </select>
+          <select value={actionPriority} onChange={(event) => setActionPriority(event.target.value)} className="rounded border border-white/10 bg-background px-2 py-1">
+            <option>None</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+          </select>
+          <input value={actionAssignee} onChange={(event) => setActionAssignee(event.target.value)} placeholder="Team member" className="min-w-32 rounded border border-white/10 bg-background px-2 py-1" />
+          <input value={actionNotes} onChange={(event) => setActionNotes(event.target.value)} placeholder="Notes (optional)" className="min-w-40 rounded border border-white/10 bg-background px-2 py-1" />
+          <button type="button" disabled={actionLoading} onClick={() => void action([...selectedGroups])} className="rounded bg-accent px-2 py-1 text-white disabled:opacity-40">Apply</button>
+        </div>
+      )}
       {error && <p className="mt-3 text-xs text-rose-300">{error}</p>}
       <div className="mt-4 space-y-2">
         {loading && <p className="py-4 text-center text-xs text-muted-dim">Loading findings…</p>}
         {!loading && rows.map((finding) => (
           <div key={finding.group_id} className="rounded-lg border border-white/5 bg-background/20 px-3 py-2">
+            <label className="flex items-center gap-2 text-[10px] text-muted-dim">
+              <input type="checkbox" checked={selectedGroups.has(finding.group_id)} onChange={(event) => setSelectedGroups((current) => {
+                const next = new Set(current);
+                if (event.target.checked) next.add(finding.group_id); else next.delete(finding.group_id);
+                return next;
+              })} />
+              Select group for bulk update
+            </label>
             <button type="button" onClick={() => setSelected(finding)} className="flex w-full flex-wrap items-center gap-3 text-left">
             <span className={`w-16 text-[10px] font-bold uppercase ${finding.severity === "Critical" ? "text-rose-300" : finding.severity === "High" ? "text-pink-300" : "text-amber-300"}`}>{finding.severity}</span>
             <div className="min-w-0 flex-1">
@@ -210,6 +254,21 @@ function formatDate(value: string | null | undefined) {
 }
 
 function FindingDetail({ finding, onClose }: { finding: FindingGroup; onClose: () => void }) {
+  const [status, setStatus] = useState<string | null>(null);
+  const [priority, setPriority] = useState("None");
+  const [notes, setNotes] = useState("");
+  const [assignee, setAssignee] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = async () => {
+    setSaving(true);
+    const { error: saveError } = await createClient().rpc("update_findings_group", {
+      p_group_id: finding.group_id, p_status: status, p_priority: priority, p_notes: notes, p_assigned_to: assignee,
+    });
+    setError(saveError?.message ?? null);
+    setSaving(false);
+    if (!saveError) onClose();
+  };
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/50" role="dialog" aria-modal="true" aria-label="Finding details" onClick={onClose}>
       <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-white/10 bg-background p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
@@ -233,6 +292,21 @@ function FindingDetail({ finding, onClose }: { finding: FindingGroup; onClose: (
         </div>
         <DetailBlock label="Evidence" value={finding.evidence} />
         <DetailBlock label="Remediation" value={finding.remediation} />
+        <section className="mt-5 space-y-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-dim">Lifecycle actions</h4>
+          <div className="flex flex-wrap gap-2">
+            <select value={status ?? ""} onChange={(event) => setStatus(event.target.value || null)} className="rounded border border-white/10 bg-background px-2 py-1 text-xs">
+              <option value="">Keep status</option><option>Confirmed</option><option>Fixed</option><option>False Positive</option><option>New</option>
+            </select>
+            <select value={priority} onChange={(event) => setPriority(event.target.value)} className="rounded border border-white/10 bg-background px-2 py-1 text-xs">
+              <option>None</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+            </select>
+            <input value={assignee} onChange={(event) => setAssignee(event.target.value)} placeholder="Team member" className="min-w-32 rounded border border-white/10 bg-background px-2 py-1 text-xs" />
+          </div>
+          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add investigation notes..." rows={3} className="w-full rounded border border-white/10 bg-background p-2 text-xs" />
+          {error && <p className="text-xs text-rose-300">{error}</p>}
+          <button type="button" disabled={saving} onClick={() => void save()} className="rounded bg-accent px-3 py-1.5 text-xs text-white disabled:opacity-40">{saving ? "Saving..." : "Save changes"}</button>
+        </section>
         <section className="mt-5">
           <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-dim">Related host services and ports</h4>
           <div className="mt-2 space-y-1 text-xs text-muted">
