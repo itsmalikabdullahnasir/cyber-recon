@@ -11,6 +11,12 @@ type DashboardData = {
   activities: Activity[];
   scans: Scan[];
   running_scan: Scan | null;
+  queue: {
+    queued: number;
+    running: number;
+    done: number;
+    failed: number;
+  };
   scan_series: number[];
   totals: {
     targets: number;
@@ -61,6 +67,12 @@ export default async function DashboardPage() {
               severity: { Critical: null, High: null, Medium: null, Low: null, Info: null },
             }}
             runningScan={dashboard.running_scan}
+            queue={dashboard.queue ?? {
+              queued: Math.max(0, dashboard.totals.active_scans - (dashboard.running_scan ? 1 : 0)),
+              running: dashboard.running_scan ? 1 : 0,
+              done: 0,
+              failed: 0,
+            }}
             runningScanError={null}
             scanSeries={dashboard.scan_series}
             userName={user.email ?? "operator"}
@@ -80,6 +92,10 @@ export default async function DashboardPage() {
     highFindingCountResult,
     scanCountResult,
     activeScanCountResult,
+    queuedScanCountResult,
+    runningScanCountResult,
+    doneScanCountResult,
+    failedScanCountResult,
     criticalCountResult,
     highCountResult,
     mediumCountResult,
@@ -101,6 +117,10 @@ export default async function DashboardPage() {
     supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "High"),
     supabase.from("scans").select("id", { count: "exact", head: true }),
     supabase.from("scans").select("id", { count: "exact", head: true }).in("status", ["queued", "running"]),
+    supabase.from("scans").select("id", { count: "exact", head: true }).eq("status", "queued"),
+    supabase.from("scans").select("id", { count: "exact", head: true }).eq("status", "running"),
+    supabase.from("scans").select("id", { count: "exact", head: true }).eq("status", "done"),
+    supabase.from("scans").select("id", { count: "exact", head: true }).eq("status", "failed"),
     supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Critical"),
     supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "High"),
     supabase.from("findings").select("id", { count: "exact", head: true }).eq("severity", "Medium"),
@@ -114,16 +134,16 @@ export default async function DashboardPage() {
     // Server-side time bounds keep this fallback query small when the RPC
     // migration has not been applied yet.
     // eslint-disable-next-line react-hooks/purity
-    supabase.from("scans").select("created_at").gte("created_at", new Date(Date.now() - 23 * 3600000).toISOString()),
+    supabase.from("scans").select("created_at").gte("created_at", new Date(Date.now() - 6 * 86400000).toISOString()),
   ]);
 
-  const scanSeries = new Array(24).fill(0);
+  const scanSeries = new Array(7).fill(0);
   // The server-rendered fallback is only used when the RPC migration is absent.
   // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
   for (const scan of scanActivityResult.data ?? []) {
-    const age = Math.floor((now - new Date(scan.created_at).getTime()) / 3600000);
-    if (age >= 0 && age < 24) scanSeries[23 - age]++;
+    const age = Math.floor((now - new Date(scan.created_at).getTime()) / 86400000);
+    if (age >= 0 && age < 7) scanSeries[6 - age]++;
   }
 
   return (
@@ -171,6 +191,12 @@ export default async function DashboardPage() {
             },
           }}
           runningScan={runningScanResult.data}
+          queue={{
+            queued: queuedScanCountResult.count ?? 0,
+            running: runningScanCountResult.count ?? 0,
+            done: doneScanCountResult.count ?? 0,
+            failed: failedScanCountResult.count ?? 0,
+          }}
           runningScanError={runningScanResult.error?.message ?? null}
           scanSeries={scanSeries}
           userName={user.email ?? "operator"}

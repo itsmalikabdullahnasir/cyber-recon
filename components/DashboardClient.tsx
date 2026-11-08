@@ -32,7 +32,13 @@ const SEVERITY_COLORS: Record<string, string> = {
 type MetricKey = "targets" | "hosts" | "liveHosts" | "findings" | "criticalFindings" | "scans" | "activeScans";
 type MetricState = { value: number | null; error: string | null };
 
-function NowScanning({ scan, loading, error, onRetry }: { scan: Scan | null; loading?: boolean; error?: string | null; onRetry?: () => void }) {
+function NowScanning({ scan, queue, loading, error, onRetry }: {
+  scan: Scan | null;
+  queue: { queued: number; running: number; done: number; failed: number };
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
+}) {
   const stage = scan?.stage ? scan.stages?.[scan.stage] : null;
   const host = stage && typeof stage === "object"
     ? ["host", "ip", "current_host", "current_ip", "target"].map((key) => stage[key]).find((value) => typeof value === "string")
@@ -45,7 +51,7 @@ function NowScanning({ scan, loading, error, onRetry }: { scan: Scan | null; loa
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">Now scanning</p>
           <p className={`mt-1 text-sm font-semibold ${scan ? "text-amber-200" : "text-muted"}`}>
-            {loading ? "Checking scan status…" : error ? "Couldn’t load scan status" : scan ? scan.input : "Idle — queue paused"}
+            {loading ? "Checking scan status…" : error ? "Couldn’t load scan status" : scan ? scan.input : queue.queued > 0 ? "Waiting for worker capacity" : "No scan running"}
           </p>
         </div>
         {error && (
@@ -62,6 +68,11 @@ function NowScanning({ scan, loading, error, onRetry }: { scan: Scan | null; loa
             {host && <span className="font-mono text-amber-200/80">{host}</span>}
           </div>
         )}
+        {!error && !loading && queue.queued > 0 && (
+          <div className="ml-auto text-[11px] text-muted-dim">
+            {queue.queued.toLocaleString()} queued · {queue.running} running
+          </div>
+        )}
       </div>
     </div>
   );
@@ -74,6 +85,7 @@ export function DashboardClient({
   activities,
   scans: scansInit,
   runningScan: runningScanInit,
+  queue,
   totals,
   countErrors: initialCountErrors,
   runningScanError: runningScanErrorInit,
@@ -86,6 +98,7 @@ export function DashboardClient({
   activities: Activity[];
   scans: Scan[];
   runningScan: Scan | null;
+  queue: { queued: number; running: number; done: number; failed: number };
   totals: {
     targets: number | null;
     hosts: number | null;
@@ -113,6 +126,7 @@ export function DashboardClient({
   const [findings, setFindings] = useState<Finding[]>(findingsInit);
   const [scans, setScans] = useState<Scan[]>(scansInit);
   const [runningScan, setRunningScan] = useState<Scan | null>(runningScanInit);
+  const [queueState, setQueueState] = useState(queue);
   const [counts, setCounts] = useState(totals);
   const [countErrors, setCountErrors] = useState(initialCountErrors);
   const [countLoading, setCountLoading] = useState(false);
@@ -213,10 +227,17 @@ export function DashboardClient({
       const dashboard = data as {
         scans: Scan[];
         running_scan: Scan | null;
+        queue: typeof queue;
         scan_series: number[];
         totals: Parameters<typeof applyDashboardTotals>[0];
       };
       setScans(dashboard.scans);
+      setQueueState(dashboard.queue ?? {
+        queued: Math.max(0, dashboard.totals.active_scans - (dashboard.running_scan ? 1 : 0)),
+        running: dashboard.running_scan ? 1 : 0,
+        done: 0,
+        failed: 0,
+      });
       setScanSeriesOverride(dashboard.scan_series);
       setRunningScan(dashboard.running_scan);
       setRunningScanError(null);
@@ -348,14 +369,14 @@ export function DashboardClient({
     return Math.min(100, Math.round((score / (counts.findings * 10)) * 100));
   }, [counts]);
 
-  // Scan activity over the last 24 hours.
+  // Scan activity over the last 7 days.
   const derivedScanSeries = useMemo(() => {
-    const hours = 24;
-    const buckets = new Array(hours).fill(0);
+    const days = 7;
+    const buckets = new Array(days).fill(0);
     const now = scans.reduce((latest, scan) => Math.max(latest, new Date(scan.created_at).getTime()), 0);
     for (const s of scans) {
-      const age = Math.floor((now - new Date(s.created_at).getTime()) / 3600000);
-      if (age >= 0 && age < hours) buckets[hours - 1 - age]++;
+      const age = Math.floor((now - new Date(s.created_at).getTime()) / 86400000);
+      if (age >= 0 && age < days) buckets[days - 1 - age]++;
     }
     return buckets;
   }, [scans]);
@@ -421,6 +442,7 @@ export function DashboardClient({
       </div>
       <NowScanning
         scan={runningScan}
+        queue={queueState}
         loading={runningScanLoading}
         error={runningScanError}
         onRetry={() => {
@@ -435,12 +457,26 @@ export function DashboardClient({
         }}
       />
 
+      <div className="card grid grid-cols-2 gap-3 p-4 sm:grid-cols-4">
+        {[
+          ["Queued", queueState.queued, "text-indigo-300"],
+          ["Running", queueState.running, "text-amber-300"],
+          ["Completed", queueState.done, "text-emerald-300"],
+          ["Failed", queueState.failed, "text-rose-300"],
+        ].map(([label, value, color]) => (
+          <div key={label} className="rounded-lg border border-white/5 bg-background/30 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-dim">{label}</p>
+            <p className={`mt-1 text-lg font-bold ${color}`}>{Number(value).toLocaleString()}</p>
+          </div>
+        ))}
+      </div>
+
       {/* KPI row */}
       <div className="animate-fade-in grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard label="Targets" value={counts.targets} error={countErrors.targets} loading={countLoading} onRetry={() => void retryMetric("targets")} color="#a855f7" series={[1, 2, 2, 3, counts.targets ?? 0]} />
         <KpiCard label="Live hosts" value={liveHosts} error={countErrors.liveHosts} loading={countLoading} onRetry={() => void retryMetric("liveHosts")} sub={counts.hosts === null ? undefined : `${counts.hosts} total`} color="#d946ef" series={[2, 3, 5, 4, liveHosts ?? 0]} />
         <KpiCard label="Findings" value={counts.findings} error={countErrors.findings} loading={countLoading} onRetry={() => void retryMetric("findings")} sub={criticalFindings === null ? undefined : `${criticalFindings} crit/high`} color="#ec4899" accent={(criticalFindings ?? 0) > 0} series={scanSeries} />
-        <KpiCard label="Active scans" value={activeScans} error={countErrors.activeScans} loading={countLoading} onRetry={() => void retryMetric("activeScans")} sub={counts.scans === null ? undefined : `${counts.scans} total`} color="#f59e0b" live={(activeScans ?? 0) > 0} series={scanSeries} />
+        <KpiCard label="Scan queue" value={activeScans} error={countErrors.activeScans} loading={countLoading} onRetry={() => void retryMetric("activeScans")} sub={counts.scans === null ? undefined : `${queueState.running} running · ${counts.scans} total`} color="#f59e0b" live={queueState.running > 0} series={scanSeries} />
       </div>
 
       {/* Charts */}

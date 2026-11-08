@@ -62,6 +62,12 @@ as $$
         limit 1
       ) s
     ),
+    'queue', jsonb_build_object(
+      'queued', (select count(*) from public.scans where status = 'queued'),
+      'running', (select count(*) from public.scans where status = 'running'),
+      'done', (select count(*) from public.scans where status = 'done'),
+      'failed', (select count(*) from public.scans where status = 'failed')
+    ),
     'scan_series', coalesce((
       select jsonb_agg(hour_count order by hour)
       from (
