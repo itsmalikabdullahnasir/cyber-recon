@@ -5,17 +5,37 @@ import type { Finding, Severity } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 
 type Sort = "severity" | "newest" | "cvss";
-type WorkbenchFinding = Finding & {
+type Occurrence = {
+  id: string;
+  scan_id: string | null;
+  scan_input: string | null;
+  scan_created_at: string | null;
+  source: string | null;
+  status: string;
+  cvss: number | null;
+  created_at: string;
+};
+type FindingGroup = {
+  group_id: string;
+  title: string;
+  severity: Severity;
+  status: string;
+  cve_id: string | null;
+  cvss: number | null;
+  affected_url: string | null;
   target_name?: string | null;
   target_domain?: string | null;
   host_ip?: string | null;
   host_hostname?: string | null;
-  scan_input?: string | null;
-  scan_created_at?: string | null;
+  occurrence_count: number;
+  is_recurring: boolean;
+  first_seen_at: string;
+  last_seen_at: string;
+  occurrences: Occurrence[];
 };
 const PAGE_SIZE = 25;
 
-function downloadRows(rows: WorkbenchFinding[], format: "json" | "csv") {
+function downloadRows(rows: FindingGroup[], format: "json" | "csv") {
   const values = rows.map((finding) => ({
     title: finding.title,
     severity: finding.severity,
@@ -25,9 +45,9 @@ function downloadRows(rows: WorkbenchFinding[], format: "json" | "csv") {
     affected_url: finding.affected_url,
     target: finding.target_name ?? finding.target_domain,
     host: finding.host_ip ?? finding.host_hostname,
-    scan: finding.scan_input,
-    scan_id: finding.scan_id,
-    created_at: finding.created_at,
+    occurrences: finding.occurrence_count,
+    first_seen: finding.first_seen_at,
+    last_seen: finding.last_seen_at,
   }));
   const body = format === "json"
     ? JSON.stringify(values, null, 2)
@@ -50,7 +70,8 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
   const [unresolvedOnly, setUnresolvedOnly] = useState(true);
   const [sort, setSort] = useState<Sort>("severity");
   const [page, setPage] = useState(1);
-  const [rows, setRows] = useState<WorkbenchFinding[]>(initialFindings.slice(0, PAGE_SIZE));
+  const [rows, setRows] = useState<FindingGroup[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [total, setTotal] = useState(initialFindings.length);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +80,7 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
     setLoading(true);
     setError(null);
     const supabase = createClient();
-    const { data, error: rpcError } = await supabase.rpc("get_findings_page", {
+    const { data, error: rpcError } = await supabase.rpc("get_findings_groups", {
       p_search: query || null,
       p_severity: severity === "All" ? null : severity,
       p_unresolved_only: unresolvedOnly,
@@ -69,17 +90,13 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
     });
     if (rpcError || !data) {
       setError(rpcError?.message ?? "Could not load findings.");
-      if (page === 1 && !query && severity === "All" && unresolvedOnly) {
-        setRows(initialFindings.slice(0, PAGE_SIZE));
-        setTotal(initialFindings.length);
-      }
     } else {
-      const result = data as { rows?: WorkbenchFinding[]; total?: number };
+      const result = data as { rows?: FindingGroup[]; total?: number };
       setRows(result.rows ?? []);
       setTotal(result.total ?? 0);
     }
     setLoading(false);
-  }, [initialFindings, page, query, severity, sort, unresolvedOnly]);
+  }, [page, query, severity, sort, unresolvedOnly]);
 
   useEffect(() => {
     const timer = setTimeout(() => void load(), 250);
@@ -117,7 +134,12 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
       <div className="mt-4 space-y-2">
         {loading && <p className="py-4 text-center text-xs text-muted-dim">Loading findings…</p>}
         {!loading && rows.map((finding) => (
-          <div key={finding.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-white/5 bg-background/20 px-3 py-2">
+          <div key={finding.group_id} className="rounded-lg border border-white/5 bg-background/20 px-3 py-2">
+            <button type="button" onClick={() => setExpanded((current) => {
+              const next = new Set(current);
+              if (next.has(finding.group_id)) next.delete(finding.group_id); else next.add(finding.group_id);
+              return next;
+            })} className="flex w-full flex-wrap items-center gap-3 text-left">
             <span className={`w-16 text-[10px] font-bold uppercase ${finding.severity === "Critical" ? "text-rose-300" : finding.severity === "High" ? "text-pink-300" : "text-amber-300"}`}>{finding.severity}</span>
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-medium">{finding.title}</p>
@@ -127,12 +149,29 @@ export function FindingsWorkbench({ findings: initialFindings }: { findings: Fin
                 {finding.target_domain ?? finding.target_name ?? "Unknown target"}
               </p>
               <p className="truncate text-[10px] text-muted-dim">
-                {finding.affected_url ? `URL: ${finding.affected_url}` : `Scan: ${finding.scan_input ?? "unknown"}${finding.scan_created_at ? ` · ${new Date(finding.scan_created_at).toLocaleString()}` : ""}`}
+                {finding.affected_url ? `URL: ${finding.affected_url}` : "No affected URL recorded"}
               </p>
             </div>
             {finding.cve_id && <span className="font-mono text-[10px] text-accent">{finding.cve_id}</span>}
             {finding.cvss !== null && <span className="text-[10px] text-muted-dim">CVSS {finding.cvss}</span>}
-            <span className="text-[10px] text-muted-dim">{finding.status}</span>
+            <span className="text-[10px] text-muted-dim">{finding.occurrence_count} occurrence{finding.occurrence_count === 1 ? "" : "s"}</span>
+            <span className={`text-[10px] ${finding.is_recurring ? "text-amber-300" : "text-muted-dim"}`}>{finding.is_recurring ? "Recurring" : "New"}</span>
+            <span className="text-[10px] text-muted-dim">{expanded.has(finding.group_id) ? "▲" : "▼"}</span>
+            </button>
+            <p className="mt-1 text-[10px] text-muted-dim">First seen {new Date(finding.first_seen_at).toLocaleString()} · Last seen {new Date(finding.last_seen_at).toLocaleString()}</p>
+            {expanded.has(finding.group_id) && (
+              <div className="mt-2 space-y-1 border-t border-white/5 pt-2">
+                {finding.occurrences.map((occurrence) => (
+                  <div key={occurrence.id} className="flex flex-wrap gap-2 text-[10px] text-muted-dim">
+                    <span>{occurrence.scan_input ?? "Unknown scan"}</span>
+                    <span>{occurrence.source ?? "unknown source"}</span>
+                    <span>{occurrence.status}</span>
+                    <span>{new Date(occurrence.created_at).toLocaleString()}</span>
+                    <span className="font-mono">{occurrence.scan_id ?? "no scan id"}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
         {!loading && !rows.length && <p className="py-8 text-center text-xs text-muted-dim">No findings match this view.</p>}
