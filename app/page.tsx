@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { DashboardClient } from "@/components/DashboardClient";
 import { TopNav } from "@/components/TopNav";
 import type { Activity, Finding, Host, Scan, Target } from "@/lib/types";
-import { DeploymentHealth } from "@/components/DeploymentHealth";
 
 type DashboardData = {
   targets: Target[];
@@ -186,7 +185,6 @@ export default async function DashboardPage() {
     <>
       <TopNav userEmail={user.email ?? ""} />
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 py-6 sm:px-6">
-        <DeploymentHealth health={healthData ?? null} quality={qualityData ?? null} />
         <DashboardClient
           targets={targets ?? []}
           hosts={hostsResult.data ?? []}
