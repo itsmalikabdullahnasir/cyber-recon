@@ -160,6 +160,10 @@ export interface Scan {
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+  last_stage_at?: string | null;
+  total_stages?: number;
+  completed_stages?: number;
+  lifecycle_status?: string;
   // Pipeline Builder (both nullable; a scan with no pipeline runs the fixed sequence).
   profile_id?: string | null;
   pipeline?: PipelineModule[] | null;

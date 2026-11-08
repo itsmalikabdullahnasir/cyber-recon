@@ -44,6 +44,14 @@ type ScanSummary = {
   live_count: number;
   risk_score: number;
 };
+type ScanLifecycle = {
+  scan_id: string;
+  lifecycle_status: string;
+  last_stage_at: string | null;
+  total_stages: number;
+  completed_stages: number;
+  queue_position: number | null;
+};
 
 function NowScanning({ scan, queue, loading, error, onRetry }: {
   scan: Scan | null;
@@ -153,6 +161,7 @@ export function DashboardClient({
   const [scanActivity, setScanActivity] = useState(scanActivityInit);
   const [scanActivity24h, setScanActivity24h] = useState(scanActivity24hInit);
   const [scanSummaries, setScanSummaries] = useState<ScanSummary[]>([]);
+  const [, setScanLifecycle] = useState<ScanLifecycle[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [dataError, setDataError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<{ id: string; text: string; kind: "ok" | "err" }[]>([]);
@@ -240,18 +249,16 @@ export function DashboardClient({
       if (!refreshPending.current) return;
       refreshPending.current = false;
       const supabase = createClient();
-      const [{ data, error }, { data: summaryData, error: summaryError }] = await Promise.all([
+      const [{ data, error }, { data: summaryData, error: summaryError }, { data: lifecycleData, error: lifecycleError }] = await Promise.all([
         supabase.rpc("get_dashboard_data"),
         supabase.rpc("get_scan_summaries"),
+        supabase.rpc("get_scan_lifecycle"),
       ]);
       if (error || !data) {
         setDataError(error?.message ?? "The database returned no dashboard data");
         setRunningScanError(error?.message ?? "The database returned no dashboard data");
         setRunningScanLoading(false);
         return;
-      }
-      if (!summaryError && Array.isArray(summaryData)) {
-        setScanSummaries(summaryData as ScanSummary[]);
       }
       const dashboard = data as {
         scans: Scan[];
@@ -262,7 +269,17 @@ export function DashboardClient({
         scan_activity_24h?: typeof scanActivity24hInit;
         totals: Parameters<typeof applyDashboardTotals>[0];
       };
-      setScans(dashboard.scans);
+      if (!summaryError && Array.isArray(summaryData)) {
+        setScanSummaries(summaryData as ScanSummary[]);
+      }
+      if (!lifecycleError && Array.isArray(lifecycleData)) {
+        const lifecycle = lifecycleData as ScanLifecycle[];
+        setScanLifecycle(lifecycle);
+        const byId = new Map(lifecycle.map((item) => [item.scan_id, item]));
+        setScans(dashboard.scans.map((scan) => ({ ...scan, ...(byId.get(scan.id) ?? {}) })));
+      } else {
+        setScans(dashboard.scans);
+      }
       setQueueState(dashboard.queue ?? {
         queued: Math.max(0, dashboard.totals.active_scans - (dashboard.running_scan ? 1 : 0)),
         running: dashboard.running_scan ? 1 : 0,
@@ -288,9 +305,17 @@ export function DashboardClient({
   useEffect(() => {
     let cancelled = false;
     const supabase = createClient();
-    void supabase.rpc("get_scan_summaries").then(({ data, error }) => {
-      if (!cancelled && !error && Array.isArray(data)) {
-        setScanSummaries(data as ScanSummary[]);
+    void Promise.all([
+      supabase.rpc("get_scan_summaries"),
+      supabase.rpc("get_scan_lifecycle"),
+    ]).then(([summary, lifecycle]) => {
+      if (cancelled) return;
+      if (!summary.error && Array.isArray(summary.data)) setScanSummaries(summary.data as ScanSummary[]);
+      if (!lifecycle.error && Array.isArray(lifecycle.data)) {
+        const values = lifecycle.data as ScanLifecycle[];
+        setScanLifecycle(values);
+        const byId = new Map(values.map((item) => [item.scan_id, item]));
+        setScans((current) => current.map((scan) => ({ ...scan, ...(byId.get(scan.id) ?? {}) })));
       }
     });
     return () => {

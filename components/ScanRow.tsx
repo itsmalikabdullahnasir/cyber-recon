@@ -170,13 +170,22 @@ export function ScanRow({
   // own "stopped" state so the record reads clearly (not a real failure).
   const cancelled = scan.status === "failed" && /cancel|stopped/i.test(scan.error ?? "");
   const stageTimes = Object.values(stages).map((stage) => new Date(stage.at).getTime()).filter(Number.isFinite);
-  const lastUpdate = stageTimes.length ? Math.max(...stageTimes) : new Date(scan.started_at ?? scan.created_at).getTime();
+  const lastUpdate = scan.last_stage_at
+    ? new Date(scan.last_stage_at).getTime()
+    : stageTimes.length ? Math.max(...stageTimes) : new Date(scan.started_at ?? scan.created_at).getTime();
   // eslint-disable-next-line react-hooks/purity
   const stalled = running && Date.now() - lastUpdate > 30 * 60 * 1000;
-  const displayStatus = cancelled ? "stopped" : stalled ? "stalled" : scan.status;
+  const displayStatus = cancelled
+    ? "stopped"
+    : scan.lifecycle_status === "stalled" || stalled
+      ? "stalled"
+      : scan.lifecycle_status === "cancelled"
+        ? "stopped"
+        : scan.lifecycle_status ?? scan.status;
   const duration = scanDuration(scan);
   const stageKeys = STAGE_ORDER.filter((k) => stages[k]);
-  const doneStages = STAGE_ORDER.filter((k) => ["done", "skipped", "refused"].includes(stages[k]?.status)).length;
+  const doneStages = scan.completed_stages ?? STAGE_ORDER.filter((k) => ["done", "skipped", "refused"].includes(stages[k]?.status)).length;
+  const totalStages = scan.total_stages || STAGE_ORDER.length;
   const currentLabel = scan.stage ? STAGE_LABELS[scan.stage] ?? scan.stage : null;
   // Per-scan risk score (hosts + findings), shown only when the caller supplied
   // this scan's rows (dashboard does; console list doesn't).
@@ -207,7 +216,7 @@ export function ScanRow({
           </svg>
           <span className="text-[11px] font-medium text-amber-200">Now: {currentLabel}{stalled ? " · no update for 30m" : ""}</span>
           {stageKeys.length > 0 && (
-          <span className="ml-auto text-[10px] text-amber-300/70">stage {doneStages}/{STAGE_ORDER.length}</span>
+          <span className="ml-auto text-[10px] text-amber-300/70">stage {doneStages}/{totalStages}</span>
           )}
         </div>
       )}

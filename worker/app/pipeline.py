@@ -14,6 +14,7 @@ from pathlib import Path
 
 from . import cve_db
 from .config import get_settings
+from .modules.registry import MODULES
 from .proc import ToolError
 from .runners import (
     dnsx,
@@ -68,6 +69,7 @@ class Pipeline:
         )
         self.email: str | None = scan.get("requested_by_email")
         self.stages: dict = dict(scan.get("stages") or {})
+        self.total_stages = len(self.pipeline_ids) if self.pipeline_ids is not None else len(MODULES)
         self.s = get_settings()
         self.workdir: Path = self.s.results_dir / self.scan_id
         # name -> subdomain row, ip -> host row (kept in sync with the DB)
@@ -87,7 +89,21 @@ class Pipeline:
             self._abort_if_cancelled()
         self.stages[name] = {"status": status, "at": now_iso(), **info}
         log.info("scan %s stage %s %s %s", self.scan_id, name, status, info)
-        self.db.update("scans", {"id": f"eq.{self.scan_id}"}, {"stage": name, "stages": self.stages})
+        completed = sum(
+            1 for stage in self.stages.values()
+            if stage.get("status") in ("done", "skipped", "refused")
+        )
+        self.db.update(
+            "scans",
+            {"id": f"eq.{self.scan_id}"},
+            {
+                "stage": name,
+                "stages": self.stages,
+                "last_stage_at": self.stages[name]["at"],
+                "total_stages": self.total_stages,
+                "completed_stages": completed,
+            },
+        )
 
     def _abort_if_cancelled(self) -> None:
         try:
@@ -100,7 +116,18 @@ class Pipeline:
     # -- entry point ---------------------------------------------------------
     def run(self) -> None:
         self.workdir.mkdir(parents=True, exist_ok=True)
-        self.db.update("scans", {"id": f"eq.{self.scan_id}"}, {"status": "running", "started_at": now_iso()})
+        started = now_iso()
+        self.db.update(
+            "scans",
+            {"id": f"eq.{self.scan_id}"},
+            {
+                "status": "running",
+                "started_at": started,
+                "last_stage_at": started,
+                "total_stages": self.total_stages,
+                "completed_stages": 0,
+            },
+        )
         self.db.notify(self.email, f"🛰️ Scan started — {self.scan['input']}",
                        f"{self.mode} scan running on the recon VM", self.target_id)
         try:
@@ -108,13 +135,15 @@ class Pipeline:
         except ScanCancelled:
             log.info("scan %s cancelled by user", self.scan_id)
             self.db.update("scans", {"id": f"eq.{self.scan_id}"},
-                           {"status": "failed", "error": "cancelled by user", "finished_at": now_iso(), "stages": self.stages})
+                           {"status": "failed", "error": "cancelled by user", "finished_at": now_iso(), "stages": self.stages,
+                            "completed_stages": self._completed_stage_count()})
             self.db.notify(self.email, f"⏹️ Scan stopped — {self.scan['input']}", "cancelled by user", self.target_id)
             return
         except Exception as e:
             log.exception("scan %s failed", self.scan_id)
             self.db.update("scans", {"id": f"eq.{self.scan_id}"},
-                           {"status": "failed", "error": str(e)[:1000], "finished_at": now_iso(), "stages": self.stages})
+                           {"status": "failed", "error": str(e)[:1000], "finished_at": now_iso(), "stages": self.stages,
+                            "completed_stages": self._completed_stage_count()})
             self.db.notify(self.email, f"❌ Scan failed — {self.scan['input']}", str(e)[:300], self.target_id)
             self.db.activity(self.target_id, "Recon scan failed", f"{self.scan['input']}: {str(e)[:300]}")
             return
@@ -128,9 +157,17 @@ class Pipeline:
         summary = (f"{self.scan['input']}: {len(self.subs)} subdomains, {live} live hosts, "
                    f"{self.findings_new} new findings")
         self.db.update("scans", {"id": f"eq.{self.scan_id}"},
-                       {"status": "done", "stage": "done", "finished_at": now_iso(), "stages": self.stages})
+                       {"status": "done", "stage": "done", "finished_at": now_iso(), "stages": self.stages,
+                        "last_stage_at": now_iso(), "total_stages": self.total_stages,
+                        "completed_stages": self.total_stages})
         self.db.notify(self.email, f"✅ Scan complete — {self.scan['input']}", summary, self.target_id)
         self.db.activity(self.target_id, f"Recon scan ({self.mode}) finished", summary)
+
+    def _completed_stage_count(self) -> int:
+        return sum(
+            1 for stage in self.stages.values()
+            if stage.get("status") in ("done", "skipped", "refused")
+        )
 
     def _run(self) -> None:
         kind, value = parse_target(self.scan["input"])
