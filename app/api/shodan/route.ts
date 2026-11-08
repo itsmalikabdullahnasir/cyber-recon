@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
 const SHODAN_API_KEY = process.env.SHODAN_API_KEY;
 
@@ -68,6 +69,14 @@ async function lookupCVEsForServices(services: { product: string; version: strin
 }
 
 export async function POST(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
   try {
     const { ip, skipCVE } = await request.json();
 

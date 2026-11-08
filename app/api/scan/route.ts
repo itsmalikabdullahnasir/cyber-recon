@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { safeFetch } from "@/lib/ssrfGuard";
+import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -105,6 +106,14 @@ function analyzeCookies(setCookieHeaders: string[]) {
 }
 
 export async function POST(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
   try {
     const { url, test } = await request.json();
     if (!url) return NextResponse.json({ error: "URL required" }, { status: 400 });

@@ -102,6 +102,13 @@ def test_nmap_rejects_billion_laughs(tmp_path):
         nmap.parse_xml(p)
 
 
+def test_nmap_handles_truncated_xml(tmp_path):
+    p = tmp_path / "truncated.xml"
+    p.write_text('<?xml version="1.0"?><nmaprun><host>')
+    with pytest.raises(nmap.ToolError):
+        nmap.parse_xml(p)
+
+
 def test_nuclei_parse():
     r = nuclei.parse_result({
         "template-id": "CVE-2021-41773", "host": "https://a.example.com", "matched-at": "https://a.example.com/cgi-bin/",

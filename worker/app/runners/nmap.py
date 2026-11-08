@@ -11,7 +11,12 @@ from ..validation import normalize_public_ip
 
 def parse_xml(path: Path) -> dict:
     """Parse nmap -oX output into {"ports": [...], "os": str | None}."""
-    root = ElementTree.parse(path).getroot()
+    if not path.exists() or path.stat().st_size == 0:
+        return {"ports": [], "os": None}
+    try:
+        root = ElementTree.parse(path).getroot()
+    except Exception as e:
+        raise ToolError(f"malformed or incomplete nmap XML ({path.name}): {e}")
     ports = []
     for port in root.iter("port"):
         state = port.find("state")

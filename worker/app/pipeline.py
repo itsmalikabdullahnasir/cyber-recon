@@ -343,6 +343,10 @@ class Pipeline:
             except ToolError as e:
                 errors.append(f"{ip}: {e}")
                 continue
+            except Exception as e:
+                log.warning("nmap run on %s encountered unexpected error: %s", ip, e)
+                errors.append(f"{ip}: {e}")
+                continue
             self._apply_nmap(ip, result)
             self.stage("nmap", "running", done=i, queued=len(allowed), skipped_cdn=len(skipped_cdn),
                        skipped_out_of_scope=len(skipped_scope), skipped_cap=len(capped))
