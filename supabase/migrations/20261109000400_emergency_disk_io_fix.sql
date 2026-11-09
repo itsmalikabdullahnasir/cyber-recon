@@ -440,3 +440,4 @@ analyze public.scans;
 analyze public.hosts;
 
 notify pgrst, 'reload schema';
+

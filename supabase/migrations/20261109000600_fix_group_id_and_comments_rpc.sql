@@ -145,3 +145,4 @@ grant execute on function public.get_findings_groups(text,text,boolean,text,inte
 grant execute on function public.get_finding_comments(text) to authenticated;
 
 notify pgrst, 'reload schema';
+

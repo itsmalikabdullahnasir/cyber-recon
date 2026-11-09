@@ -252,3 +252,4 @@ grant execute on function public.get_findings_export(text,text,boolean)         
 analyze public.findings;
 
 notify pgrst, 'reload schema';
+
