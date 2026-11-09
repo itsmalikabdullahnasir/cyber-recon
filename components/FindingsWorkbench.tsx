@@ -708,6 +708,11 @@ function FindingDetail({
 
   useEffect(() => {
     let active = true;
+    if (!finding.group_id) {
+      setComments([]);
+      setCommentsLoading(false);
+      return;
+    }
     void createClient()
       .rpc("get_finding_comments", { p_group_id: finding.group_id })
       .then(({ data, error: loadError }) => {
