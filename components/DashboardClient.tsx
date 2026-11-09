@@ -333,11 +333,14 @@ export function DashboardClient({
   }, [runningScan]);
 
   useEffect(() => {
+    // Poll every 30 s (down from 10 s) — the Supabase Realtime channel already
+    // triggers an immediate refresh on scan/finding changes, so this is just a
+    // safety net for missed events, not the primary refresh mechanism.
     const timer = setInterval(() => {
       if (document.visibilityState === "visible" && activeScansRef.current) {
         scheduleRefreshRef.current();
       }
-    }, 10000);
+    }, 30000);
     return () => clearInterval(timer);
   }, []);
 
